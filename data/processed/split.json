@@ -1,0 +1,110 @@
+{
+  "fractions": {
+    "train": 0.7,
+    "val": 0.15,
+    "test": 0.15000000000000005
+  },
+  "patient_held_out_split": {
+    "train_patients": [
+      "synthetic_000",
+      "synthetic_001",
+      "synthetic_002",
+      "synthetic_003"
+    ],
+    "test_held_out_patients": [
+      "synthetic_004"
+    ]
+  },
+  "patients": {
+    "synthetic_000": {
+      "train": {
+        "start": "2024-01-01 00:00:00",
+        "end": "2024-01-03 02:15:00",
+        "n_rows": 604
+      },
+      "val": {
+        "start": "2024-01-03 02:20:00",
+        "end": "2024-01-03 13:05:00",
+        "n_rows": 130
+      },
+      "test": {
+        "start": "2024-01-03 13:10:00",
+        "end": "2024-01-03 23:55:00",
+        "n_rows": 130
+      },
+      "is_patient_held_out": false
+    },
+    "synthetic_001": {
+      "train": {
+        "start": "2024-01-01 00:00:00",
+        "end": "2024-01-03 02:15:00",
+        "n_rows": 604
+      },
+      "val": {
+        "start": "2024-01-03 02:20:00",
+        "end": "2024-01-03 13:05:00",
+        "n_rows": 130
+      },
+      "test": {
+        "start": "2024-01-03 13:10:00",
+        "end": "2024-01-03 23:55:00",
+        "n_rows": 130
+      },
+      "is_patient_held_out": false
+    },
+    "synthetic_002": {
+      "train": {
+        "start": "2024-01-01 00:00:00",
+        "end": "2024-01-03 02:15:00",
+        "n_rows": 604
+      },
+      "val": {
+        "start": "2024-01-03 02:20:00",
+        "end": "2024-01-03 13:05:00",
+        "n_rows": 130
+      },
+      "test": {
+        "start": "2024-01-03 13:10:00",
+        "end": "2024-01-03 23:55:00",
+        "n_rows": 130
+      },
+      "is_patient_held_out": false
+    },
+    "synthetic_003": {
+      "train": {
+        "start": "2024-01-01 00:00:00",
+        "end": "2024-01-03 02:15:00",
+        "n_rows": 604
+      },
+      "val": {
+        "start": "2024-01-03 02:20:00",
+        "end": "2024-01-03 13:05:00",
+        "n_rows": 130
+      },
+      "test": {
+        "start": "2024-01-03 13:10:00",
+        "end": "2024-01-03 23:55:00",
+        "n_rows": 130
+      },
+      "is_patient_held_out": false
+    },
+    "synthetic_004": {
+      "train": {
+        "start": "2024-01-01 00:00:00",
+        "end": "2024-01-03 02:15:00",
+        "n_rows": 604
+      },
+      "val": {
+        "start": "2024-01-03 02:20:00",
+        "end": "2024-01-03 13:05:00",
+        "n_rows": 130
+      },
+      "test": {
+        "start": "2024-01-03 13:10:00",
+        "end": "2024-01-03 23:55:00",
+        "n_rows": 130
+      },
+      "is_patient_held_out": true
+    }
+  }
+}
