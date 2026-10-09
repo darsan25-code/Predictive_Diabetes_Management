@@ -1,0 +1,25 @@
+# Bergman Minimal Model — default parameters and uncertainty settings
+# Reference: Bergman RN et al. (1981) J Clin Invest 68:1456-1467
+# Units: glucose mg/dL, insulin mU, time minutes (AGENTS.md Rule 9)
+
+parameters:
+  p1:  0.028     # min^-1   — glucose effectiveness (insulin-independent)
+  p2:  0.028     # min^-1   — rate constant, remote compartment
+  p3:  5.0e-5    # mU^-1 min^-2 — insulin action on glucose production
+  n:   0.15      # min^-1   — plasma insulin clearance
+  Gb:  100.0     # mg/dL    — basal (fasting) plasma glucose
+  Ib:  10.0      # mU/L     — basal plasma insulin
+  Vg:  117.0     # dL       — glucose distribution volume
+  Vi:  12.0      # L        — insulin distribution volume
+  k_meal: 0.05   # min^-1   — meal glucose appearance rate constant
+  k_abs:  0.02   # min^-1   — meal absorption decay constant
+
+uncertainty:
+  n_bootstrap: 200      # bootstrap resamples for 95% CI (increase for production)
+  ci_level: 0.95        # confidence level for parameter intervals
+  residual_window: 60   # minutes of residuals used for bootstrap
+
+simulation:
+  dt_min:      1.0     # internal ODE step (minutes)
+  max_glucose: 600.0   # mg/dL — physiological ceiling (clips unrealistic values)
+  min_glucose:  20.0   # mg/dL — physiological floor

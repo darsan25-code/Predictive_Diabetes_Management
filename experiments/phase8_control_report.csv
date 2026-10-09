@@ -1,0 +1,3 @@
+Method,TIR (%),TBR (%),TAR (%),Hypo Count,Veto Count,Clamp Count,Invariant Violations
+RL + Hard Shield,100.0,0.0,0.0,0,26,24,0
+MPC Baseline,100.0,0.0,0.0,0,0,0,0

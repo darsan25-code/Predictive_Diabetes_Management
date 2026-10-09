@@ -1,0 +1,16 @@
+# Extended Kalman Filter configuration
+# State vector: [G (mg/dL), X (1/min), I (mU/L)]
+# Observation: CGM glucose only (mg/dL)
+# All noise values are variances, not standard deviations.
+
+noise:
+  Q:                    # process noise covariance — diagonal entries
+    G: 2.0              # (mg/dL)^2/min  — glucose model uncertainty
+    X: 1.0e-6           # (1/min)^2/min  — remote insulin uncertainty
+    I: 0.05             # (mU/L)^2/min   — plasma insulin uncertainty
+  R:
+    cgm: 25.0           # (mg/dL)^2      — CGM sensor noise variance (~±5 mg/dL 1σ)
+
+initialization:
+  P_diag: [400.0, 1.0e-6, 1.0]   # initial state covariance diagonal
+  # [G uncertainty (20 mg/dL 1σ), X uncertainty, I uncertainty (1 mU/L 1σ)]

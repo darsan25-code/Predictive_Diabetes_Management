@@ -1,0 +1,17 @@
+Horizon,Model,RMSE_mgdL,MAE_mgdL,Clarke_AB_pct,Zone_A_pct,Zone_B_pct,TIR_pct,TBR_pct
+30min,Persistence Baseline,32.831,17.945,89.01,81.13,7.89,80.56,16.9
+30min,Mechanistic-Only,28.065,17.33,82.54,66.76,15.77,100.0,0.0
+30min,Pure-ML (GRU),29.238,18.952,82.25,69.01,13.24,100.0,0.0
+30min,Hybrid (Mechanistic + Residual),25.846,17.108,87.04,69.3,17.75,94.65,5.35
+60min,Persistence Baseline,37.699,23.271,78.87,64.51,14.37,80.56,16.9
+60min,Mechanistic-Only,27.74,17.805,85.07,65.35,19.72,100.0,0.0
+60min,Pure-ML (GRU),26.511,17.135,85.07,70.99,14.08,100.0,0.0
+60min,Hybrid (Mechanistic + Residual),25.015,15.197,90.14,72.39,17.75,95.77,4.23
+120min,Persistence Baseline,41.09,30.628,65.92,42.82,23.1,80.56,16.9
+120min,Mechanistic-Only,28.909,18.672,83.94,65.92,18.03,100.0,0.0
+120min,Pure-ML (GRU),27.066,17.578,83.94,72.11,11.83,100.0,0.0
+120min,Hybrid (Mechanistic + Residual),29.063,19.887,83.94,70.7,13.24,100.0,0.0
+240min,Persistence Baseline,43.744,28.761,71.83,52.96,18.87,80.56,16.9
+240min,Mechanistic-Only,29.863,20.333,79.15,64.51,14.65,100.0,0.0
+240min,Pure-ML (GRU),28.694,20.931,79.15,66.2,12.96,100.0,0.0
+240min,Hybrid (Mechanistic + Residual),30.366,21.801,81.13,56.34,24.79,100.0,0.0

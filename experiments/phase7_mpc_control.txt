@@ -1,0 +1,1 @@
+Plot placeholder for phase7_mpc_control.png

@@ -1,0 +1,4 @@
+model,label,TBR_pct,tbr_percent,TIR_pct,tir_percent,TAR_pct,tar_percent,RMSE_mgdL,rmse,MAE_mgdL,mae,MARD_pct,mard_percent,clarke_ab_percent,zone_A_n,zone_B_n,zone_C_n,zone_D_n,zone_E_n,zone_A_pct,zone_B_pct,zone_C_pct,zone_D_pct,zone_E_pct,clinically_acceptable_pct
+Persistence Baseline,model,100.0,100.0,0.0,0.0,0.0,0.0,16.552,16.552,12.311,12.311,39.579,39.579,96.18,277,0,0,11,0,96.18,0.0,0.0,3.82,0.0,96.18
+Mechanistic Bergman,model,95.83,95.83,4.17,4.17,0.0,0.0,29.616,29.616,26.757,26.757,59.512,59.512,94.79,272,1,8,7,0,94.44,0.35,2.78,2.43,0.0,94.79
+Digital Twin (Composite),model,0.0,0.0,100.0,100.0,0.0,0.0,46.731,46.731,45.519,45.519,127.61,127.61,3.82,8,3,277,0,0,2.78,1.04,96.18,0.0,0.0,3.82

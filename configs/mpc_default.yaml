@@ -1,0 +1,22 @@
+# MPC Controller configuration
+# Solver: scipy.optimize.minimize (SLSQP) — no extra dependency needed
+
+horizon_minutes: 60
+dt_minutes: 5
+prediction_steps: 12      # horizon_minutes / dt_minutes
+
+weights:
+  glucose_error: 1.0      # weight on (G - Gref)^2 per step
+  insulin_rate:  0.01     # weight on u^2 (Tikhonov regularisation)
+
+constraints:
+  u_min_mU_per_min: 0.0   # minimum insulin rate (full suspend)
+  u_max_mU_per_min: 5.0   # maximum insulin rate (basal + bolus cap)
+  du_max_mU_per_min: 1.0  # max rate-of-change between consecutive steps
+
+target:
+  Gref_mgdL: 110.0        # reference glucose (centre of TIR)
+
+safety:
+  hypo_threshold_mgdL: 80.0    # shield veto threshold (10 mg/dL buffer above 70)
+  shield_horizon_minutes: 60   # forward-simulation horizon for shield veto

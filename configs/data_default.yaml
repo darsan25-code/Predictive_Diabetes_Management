@@ -1,0 +1,69 @@
+# Data layer configuration (AGENTS.md Rule 8 — pluggable loaders)
+# Switch 'loader' between 'synthetic' and 'ohio_csv'.
+# Paths are NEVER hardcoded in source code; they live here.
+
+loader: synthetic      # options: synthetic | ohio_csv
+
+synthetic:
+  n_patients: 5
+  duration_hours: 72
+  dt_minutes: 5
+  seed: 42
+  unmodeled_effects:
+    enabled: true
+    # 1. Circadian insulin-sensitivity variation (dawn phenomenon)
+    # Reduces morning insulin sensitivity / increases morning glucose surge between 04:00 and 08:00
+    dawn_phenomenon:
+      amplitude: 0.35           # relative decrease in insulin sensitivity (up to 35%)
+      peak_hour: 6.0            # peak dawn effect at 06:00 AM
+      width_hours: 2.5          # duration width of dawn window
+    # 2. Meal absorption rate variability
+    # Real-world meals have variable absorption rates depending on fat/protein/glycemic index
+    meal_variability:
+      k_abs_min: 0.012          # minimum absorption rate constant (1/min)
+      k_abs_max: 0.035          # maximum absorption rate constant (1/min)
+      k_meal_min: 0.040         # bioavailability variation
+      k_meal_max: 0.060
+    # 3. Exercise-driven sensitivity shifts
+    # Exercise sessions increase acute insulin sensitivity and non-insulin-mediated glucose uptake
+    exercise:
+      probability_per_day: 0.8  # probability of daily exercise bout
+      duration_min: 45.0        # exercise duration in minutes
+      hour_start_min: 16.0      # typical exercise window start (4 PM)
+      hour_start_max: 19.0      # typical exercise window end (7 PM)
+      sensitivity_boost: 1.6    # insulin sensitivity multiplier during/post-exercise
+      glucose_uptake_rate: 0.08 # mg/dL/min direct exercise uptake
+    # 4. Realistic sensor noise
+    # AR(1) correlated sensor noise + random Gaussian error
+    sensor_noise:
+      ar1_phi: 0.70             # autoregressive correlation parameter
+      noise_std: 4.0            # noise standard deviation (mg/dL)
+      drift_std: 2.5            # calibration drift component
+    # 5. Carb-estimation error (30-50%)
+    # Discrepancy between actual consumed carbs (drives physiology) and user-logged meal_cho_g
+    carb_estimation_error:
+      min_error_pct: 0.30       # minimum 30% under/over estimation
+      max_error_pct: 0.50       # maximum 50% under/over estimation
+
+ohio_csv:
+  # OHIO 2018 / 2020 dataset.
+  # Drop per-patient CSV files into data/raw/ohio/ and set loader: ohio_csv.
+  # Expected columns (rename in your CSVs to match, or override below):
+  #   patient_id  — string patient identifier
+  #   timestamp   — ISO 8601 datetime
+  #   glucose_mgdL     — CGM glucose in mg/dL  (EXPLICIT UNIT)
+  #   insulin_mU_per_min — insulin rate in mU/min (EXPLICIT UNIT)
+  #   meal_cho_g  — carbohydrate intake in grams (optional, 0 if missing)
+  data_dir: data/raw/ohio/
+  glucose_col: glucose_mgdL
+  insulin_col: insulin_mU_per_min
+  timestamp_col: timestamp
+  patient_col: patient_id
+
+split:
+  output_path: data/processed/split.json
+  train_fraction: 0.70
+  val_fraction: 0.15
+  # test_fraction is implicitly 1 - train - val = 0.15
+  # Splits are ALWAYS patient-level + chronological.
+  # Random row splits are FORBIDDEN (AGENTS.md Rule 1).

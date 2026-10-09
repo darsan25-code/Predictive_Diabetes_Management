@@ -1,0 +1,24 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Frontend dependencies and builds
+frontend/node_modules/
+frontend/dist/
+
+# Local databases and patient-specific records
+data/processed/patients.db
+data/processed/user_meals.json
+*.sqlite
+*.sqlite3
+*.db
+
+# Local experiment outputs and caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
