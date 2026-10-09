@@ -1774,20 +1774,21 @@ function OverviewPage({
 
       {/* Patient Selection & Time Window Bar */}
       <div className="patient-selector-bar">
-        <div style={{ flex: "1 1 220px" }}>
+        <div style={{ flex: "1 1 220px", minWidth: 0 }}>
           <label className="form-label">Select Patient</label>
           <select
             className="form-select"
             value={selectedId}
             onChange={e => setSelectedId(e.target.value)}
             disabled={listLoading}
+            style={{ textOverflow: "ellipsis", width: "100%" }}
           >
             {listLoading ? (
               <option>Loading patients...</option>
             ) : (
               patients.map(p => (
                 <option key={p.id} value={p.id}>
-                  {p.display_name} ({p.category})
+                  {p.display_name}
                 </option>
               ))
             )}
@@ -3211,6 +3212,11 @@ function ModelComparisonPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedHorizon, setSelectedHorizon] = useState<number | "all">("all");
+  const [expandedModels, setExpandedModels] = useState<Record<string, boolean>>({});
+
+  const toggleModelExpand = (key: string) => {
+    setExpandedModels(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const fetchBenchmark = useCallback(() => {
     setLoading(true);
@@ -3331,7 +3337,7 @@ function ModelComparisonPage() {
                 <table className="benchmark-table">
                   <thead>
                     <tr>
-                      <th>Model Architecture</th>
+                      <th>Model Details</th>
                       <th>Category</th>
                       <th>Execution Status</th>
                       <th>Horizon</th>
@@ -3352,54 +3358,134 @@ function ModelComparisonPage() {
                                              (h === 60 && model.model_key === "hybrid_neural_ode") ||
                                              (h === 120 && model.model_key === "mechanistic_ode") ||
                                              (h === 240 && model.model_key === "mechanistic_ode");
+                          const rowKey = `${model.model_key || model.model_name}-${h}`;
+                          const isExpanded = !!expandedModels[rowKey];
 
                           return (
-                            <tr key={`${model.model_key || model.model_name}-${h}`}>
-                              <td style={{ fontWeight: 600, color: "var(--text-main)" }}>
-                                {model.model_name || model.name || "Model"}
-                              </td>
-                              <td>
-                                <Badge label={model.category || "Research"} type="neutral" />
-                              </td>
-                              <td>
-                                <span className={`model-tag ${(model.execution_status || "").includes("Live") ? "live" : "offline"}`}>
-                                  {model.execution_status || "Offline Benchmark"}
-                                </span>
-                              </td>
-                              <td style={{ fontWeight: 600, color: "var(--emerald-800)" }}>
-                                +{h} min
-                              </td>
-                              <td>
-                                <span className={isBestRMSE ? "benchmark-best" : ""}>
-                                  {typeof m.rmse_mgdL === "number" ? m.rmse_mgdL.toFixed(2) : (m.rmse ?? "—")}
-                                </span>
-                              </td>
-                              <td>{typeof m.mae_mgdL === "number" ? m.mae_mgdL.toFixed(2) : (m.mae ?? "—")}</td>
-                              <td>{typeof m.mard_pct === "number" ? `${m.mard_pct.toFixed(1)}%` : "—"}</td>
-                              <td style={{ fontWeight: 600, color: (m.clarke_zone_a_plus_b_pct ?? m.clarke_ab ?? 0) >= 85 ? "var(--emerald-700)" : "var(--text-body)" }}>
-                                {typeof m.clarke_zone_a_plus_b_pct === "number"
-                                  ? `${m.clarke_zone_a_plus_b_pct.toFixed(1)}%`
-                                  : (m.clarke_ab ? `${m.clarke_ab}%` : "—")}
-                              </td>
-                            </tr>
+                            <React.Fragment key={rowKey}>
+                              <tr>
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleModelExpand(rowKey)}
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      color: "var(--emerald-700)",
+                                      fontSize: "12px",
+                                      fontWeight: 600,
+                                      cursor: "pointer",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                      padding: "2px 6px",
+                                      borderRadius: "var(--radius-xs)",
+                                    }}
+                                  >
+                                    {isExpanded ? "Show Less" : "Show More"}
+                                  </button>
+                                </td>
+                                <td>
+                                  <Badge label={model.category || "Research"} type="neutral" />
+                                </td>
+                                <td>
+                                  <span className={`model-tag ${(model.execution_status || "").includes("Live") ? "live" : "offline"}`}>
+                                    {model.execution_status || "Offline Benchmark"}
+                                  </span>
+                                </td>
+                                <td style={{ fontWeight: 600, color: "var(--emerald-800)" }}>
+                                  +{h} min
+                                </td>
+                                <td>
+                                  <span className={isBestRMSE ? "benchmark-best" : ""}>
+                                    {typeof m.rmse_mgdL === "number" ? m.rmse_mgdL.toFixed(2) : (m.rmse ?? "—")}
+                                  </span>
+                                </td>
+                                <td>{typeof m.mae_mgdL === "number" ? m.mae_mgdL.toFixed(2) : (m.mae ?? "—")}</td>
+                                <td>{typeof m.mard_pct === "number" ? `${m.mard_pct.toFixed(1)}%` : "—"}</td>
+                                <td style={{ fontWeight: 600, color: (m.clarke_zone_a_plus_b_pct ?? m.clarke_ab ?? 0) >= 85 ? "var(--emerald-700)" : "var(--text-body)" }}>
+                                  {typeof m.clarke_zone_a_plus_b_pct === "number"
+                                    ? `${m.clarke_zone_a_plus_b_pct.toFixed(1)}%`
+                                    : (m.clarke_ab ? `${m.clarke_ab}%` : "—")}
+                                </td>
+                              </tr>
+                              {isExpanded && (
+                                <tr className="benchmark-details-row">
+                                  <td colSpan={8} style={{ background: "var(--bg-secondary)", padding: "12px 18px", borderBottom: "1px solid var(--border-color)" }}>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                        <strong style={{ fontSize: "13.5px", color: "var(--text-main)" }}>
+                                          {model.model_name || model.name || "Model"}
+                                        </strong>
+                                        <Badge label={model.category || "Research"} type="neutral" />
+                                        <span className={`model-tag ${(model.execution_status || "").includes("Live") ? "live" : "offline"}`}>
+                                          {model.execution_status || "Offline Benchmark"}
+                                        </span>
+                                      </div>
+                                      {model.description && (
+                                        <div style={{ fontSize: "12.5px", color: "var(--text-body)", lineHeight: 1.5 }}>
+                                          {model.description}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           );
                         });
                       })
                     ) : (
                       records
                         .filter((r: any) => selectedHorizon === "all" || String(r.Horizon).includes(String(selectedHorizon)))
-                        .map((r: any, idx: number) => (
-                          <tr key={idx}>
-                            <td style={{ fontWeight: 600, color: "var(--text-main)" }}>{r.Model || r.model_name}</td>
-                            <td><Badge label="Research" type="neutral" /></td>
-                            <td><span className="model-tag offline">Benchmark</span></td>
-                            <td style={{ fontWeight: 600, color: "var(--emerald-800)" }}>{r.Horizon}</td>
-                            <td><span className={r.Model?.includes("Hybrid") ? "benchmark-best" : ""}>{r.RMSE_mgdL ?? r.rmse}</span></td>
-                            <td>{r.MAE_mgdL ?? r.mae}</td>
-                            <td>—</td>
-                            <td>{r.Clarke_AB_pct ? `${r.Clarke_AB_pct}%` : "—"}</td>
-                          </tr>
-                        ))
+                        .map((r: any, idx: number) => {
+                          const rowKey = `record-${idx}`;
+                          const isExpanded = !!expandedModels[rowKey];
+                          return (
+                            <React.Fragment key={idx}>
+                              <tr>
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleModelExpand(rowKey)}
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      color: "var(--emerald-700)",
+                                      fontSize: "12px",
+                                      fontWeight: 600,
+                                      cursor: "pointer",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                      padding: "2px 6px",
+                                      borderRadius: "var(--radius-xs)",
+                                    }}
+                                  >
+                                    {isExpanded ? "Show Less" : "Show More"}
+                                  </button>
+                                </td>
+                                <td><Badge label="Research" type="neutral" /></td>
+                                <td><span className="model-tag offline">Benchmark</span></td>
+                                <td style={{ fontWeight: 600, color: "var(--emerald-800)" }}>{r.Horizon}</td>
+                                <td><span className={r.Model?.includes("Hybrid") ? "benchmark-best" : ""}>{r.RMSE_mgdL ?? r.rmse}</span></td>
+                                <td>{r.MAE_mgdL ?? r.mae}</td>
+                                <td>—</td>
+                                <td>{r.Clarke_AB_pct ? `${r.Clarke_AB_pct}%` : "—"}</td>
+                              </tr>
+                              {isExpanded && (
+                                <tr className="benchmark-details-row">
+                                  <td colSpan={8} style={{ background: "var(--bg-secondary)", padding: "12px 18px", borderBottom: "1px solid var(--border-color)" }}>
+                                    <strong style={{ fontSize: "13.5px", color: "var(--text-main)" }}>{r.Model || r.model_name}</strong>
+                                    <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: 3 }}>
+                                      Evaluation Horizon: {r.Horizon} · RMSE: {r.RMSE_mgdL ?? r.rmse} mg/dL · MAE: {r.MAE_mgdL ?? r.mae} mg/dL
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })
                     )}
                   </tbody>
                 </table>
