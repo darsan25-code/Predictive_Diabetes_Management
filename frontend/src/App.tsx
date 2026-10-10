@@ -531,14 +531,12 @@ function CompactHeader({
   setSidebarCollapsed,
   mobileOpen,
   setMobileOpen,
-  health,
 }: {
   page: string;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (v: boolean) => void;
   mobileOpen: boolean;
   setMobileOpen: (v: boolean) => void;
-  health: HealthStatus | null;
 }) {
   const curPage = PAGES.find(p => p.id === page) || PAGES[0];
   const PageIcon = curPage.icon;
@@ -570,15 +568,6 @@ function CompactHeader({
       </div>
 
       <div className="header-right">
-        {health ? (
-          <Badge
-            label={health.api === "online" ? "Backend Online" : "Backend Offline"}
-            type={health.api === "online" ? "target" : "danger"}
-            icon={health.api === "online" ? ShieldCheck : AlertTriangle}
-          />
-        ) : (
-          <Badge label="Connecting..." type="neutral" icon={RefreshCw} />
-        )}
         <div className="header-avatar" title="Research User Profile">
           <User size={16} />
         </div>
@@ -637,15 +626,6 @@ function Sidebar({
           );
         })}
       </nav>
-
-      {!collapsed && (
-        <div className="sidebar-footer">
-          <div className="disclaimer-box">
-            <p style={{ fontWeight: 600, color: "var(--text-main)", marginBottom: 2 }}>Research Prototype</p>
-            <p>Not a medical device. Not for clinical decisions. All data synthetic.</p>
-          </div>
-        </div>
-      )}
     </aside>
   );
 }
@@ -1999,7 +1979,6 @@ function OverviewPage({
           <p>Monitor glucose trends and review patient simulation metrics.</p>
         </div>
         <div className="page-header-actions">
-          <Badge label={data?.forecast_model || (modelMode === "hybrid" ? "Hybrid Neural-ODE Active" : "Mechanistic ODE Active")} type={modelMode === "hybrid" ? "purple" : "target"} icon={ShieldCheck} />
           <button
             type="button"
             className="btn btn-secondary"
@@ -4794,7 +4773,6 @@ export default function App() {
         setSidebarCollapsed={setSidebarCollapsed}
         mobileOpen={mobileOpen}
         setMobileOpen={setMobileOpen}
-        health={health}
       />
 
       {/* Main Content Area */}

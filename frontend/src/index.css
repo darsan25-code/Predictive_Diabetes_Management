@@ -379,22 +379,6 @@ body.large-text-mode {
   text-overflow: ellipsis;
 }
 
-.sidebar-footer {
-  padding: 12px;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-sidebar);
-}
-
-.disclaimer-box {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 9px 11px;
-  font-size: 10.5px;
-  color: var(--text-secondary);
-  line-height: 1.45;
-}
-
 /* =============================================================
    PAGE HEADER
    ============================================================= */
@@ -1607,10 +1591,6 @@ body.large-text-mode {
   to { opacity: 1; }
 }
 
-.header-local-badge {
-  display: inline-flex;
-}
-
 @media (max-width: 768px) {
   .sidebar {
     transform: translateX(-100%);
@@ -1648,9 +1628,6 @@ body.large-text-mode {
 }
 
 @media (max-width: 640px) {
-  .header-local-badge {
-    display: none !important;
-  }
   .compact-header {
     padding: 0 12px;
   }
