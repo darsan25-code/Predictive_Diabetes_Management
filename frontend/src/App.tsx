@@ -527,52 +527,195 @@ function ChartLegend({
 // ── Compact Top Header (No Duplicate Navigation) ──────────────────────────────
 function CompactHeader({
   page,
+  setPage,
   sidebarCollapsed,
   setSidebarCollapsed,
   mobileOpen,
   setMobileOpen,
+  selectedId,
+  patients,
+  onUpdatePatient,
 }: {
   page: string;
+  setPage?: (p: string) => void;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (v: boolean) => void;
   mobileOpen: boolean;
   setMobileOpen: (v: boolean) => void;
+  selectedId?: string;
+  patients?: PatientListItem[];
+  onUpdatePatient?: (updated: PatientListItem) => void;
 }) {
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   const curPage = PAGES.find(p => p.id === page) || PAGES[0];
   const PageIcon = curPage.icon;
 
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const handleDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setProfileMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleDown);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleDown);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [profileMenuOpen]);
+
+  const activePatient = patients?.find(p => p.id === selectedId) || patients?.[0] || null;
+  const bmi = activePatient ? calcBmi(activePatient.weight_kg, activePatient.height_cm) : null;
+
   return (
-    <header className={`compact-header ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      <div className="header-left">
-        {/* Desktop sidebar collapse toggle */}
-        <button
-          type="button"
-          className="sidebar-toggle-btn"
-          onClick={() => {
-            if (window.innerWidth <= 768) {
-              setMobileOpen(!mobileOpen);
-            } else {
-              setSidebarCollapsed(!sidebarCollapsed);
-            }
+    <>
+      <header className={`compact-header ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+        <div className="header-left">
+          {/* Desktop sidebar collapse toggle */}
+          <button
+            type="button"
+            className="sidebar-toggle-btn"
+            onClick={() => {
+              if (window.innerWidth <= 768) {
+                setMobileOpen(!mobileOpen);
+              } else {
+                setSidebarCollapsed(!sidebarCollapsed);
+              }
+            }}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label="Toggle navigation sidebar"
+          >
+            {sidebarCollapsed ? <Menu size={17} /> : <ChevronLeft size={17} />}
+          </button>
+
+          <div className="header-breadcrumb">
+            <PageIcon size={17} style={{ color: "var(--emerald-600)" }} />
+            <span>{curPage.label}</span>
+          </div>
+        </div>
+
+        <div className="header-right" ref={menuRef} style={{ position: "relative" }}>
+          <button
+            type="button"
+            className={`header-avatar-btn ${profileMenuOpen ? "active" : ""}`}
+            onClick={() => setProfileMenuOpen(prev => !prev)}
+            aria-haspopup="dialog"
+            aria-expanded={profileMenuOpen}
+            aria-label="Active patient profile menu"
+            id="header-profile-button"
+            title={activePatient ? `Profile: ${activePatient.display_name}` : "Patient Profile"}
+          >
+            <User size={16} />
+          </button>
+
+          {profileMenuOpen && activePatient && (
+            <div
+              className="header-profile-dropdown"
+              role="dialog"
+              aria-label="Active Patient Profile Details"
+              id="header-profile-dropdown"
+            >
+              <div className="header-profile-header">
+                <div className="header-profile-avatar-wrap">
+                  <div className={`profile-big-avatar ${activePatient.is_synthetic ? "synthetic" : "user"}`} style={{ width: 36, height: 36, fontSize: 13 }}>
+                    {avatarInitials(activePatient.display_name)}
+                  </div>
+                  <div className="header-profile-identity">
+                    <div className="header-profile-name" title={activePatient.display_name}>{activePatient.display_name}</div>
+                    <div className="header-profile-meta">
+                      <Badge
+                        label={activePatient.is_synthetic ? "Synthetic Benchmark" : "Custom Profile"}
+                        type={activePatient.is_synthetic ? "neutral" : "teal"}
+                      />
+                      <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>ID: {activePatient.id}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="header-profile-body">
+                <div className="header-profile-stats-grid">
+                  <div className="header-profile-stat-item">
+                    <span className="stat-item-label">Age</span>
+                    <span className="stat-item-val">{activePatient.age != null ? `${activePatient.age}y` : "—"}</span>
+                  </div>
+                  <div className="header-profile-stat-item">
+                    <span className="stat-item-label">Weight</span>
+                    <span className="stat-item-val">{activePatient.weight_kg != null ? `${activePatient.weight_kg}kg` : "—"}</span>
+                  </div>
+                  <div className="header-profile-stat-item">
+                    <span className="stat-item-label">Height</span>
+                    <span className="stat-item-val">{activePatient.height_cm != null ? `${activePatient.height_cm}cm` : "—"}</span>
+                  </div>
+                  <div className="header-profile-stat-item">
+                    <span className="stat-item-label">BMI</span>
+                    <span className="stat-item-val">{bmi != null ? `${bmi}` : "—"}</span>
+                  </div>
+                </div>
+
+                {activePatient.notes ? (
+                  <div className="header-profile-notes">
+                    "{activePatient.notes}"
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>
+                    Synthetic UVA/Padova benchmark dataset trace.
+                  </div>
+                )}
+              </div>
+
+              <div className="header-profile-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    setShowEditModal(true);
+                  }}
+                  id="header-profile-edit-btn"
+                >
+                  <Sliders size={13} />
+                  Edit Profile
+                </button>
+
+                {setPage && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      setPage("twin");
+                    }}
+                    id="header-profile-twin-btn"
+                  >
+                    <HeartPulse size={13} />
+                    Digital Twin
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {showEditModal && activePatient && onUpdatePatient && (
+        <EditPatientModal
+          profile={activePatient}
+          onClose={() => setShowEditModal(false)}
+          onUpdated={(updated) => {
+            onUpdatePatient(updated);
+            setShowEditModal(false);
           }}
-          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-label="Toggle navigation sidebar"
-        >
-          {sidebarCollapsed ? <Menu size={17} /> : <ChevronLeft size={17} />}
-        </button>
-
-        <div className="header-breadcrumb">
-          <PageIcon size={17} style={{ color: "var(--emerald-600)" }} />
-          <span>{curPage.label}</span>
-        </div>
-      </div>
-
-      <div className="header-right">
-        <div className="header-avatar" title="Research User Profile">
-          <User size={16} />
-        </div>
-      </div>
-    </header>
+        />
+      )}
+    </>
   );
 }
 
@@ -1999,87 +2142,90 @@ function OverviewPage({
       )}
 
       {/* Patient Selection & Time Window Bar */}
-      <div className="patient-selector-bar">
-        <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-          <label className="form-label">Select Patient</label>
-          <select
-            className="form-select"
-            value={selectedId}
-            onChange={e => setSelectedId(e.target.value)}
-            disabled={listLoading}
-            style={{ textOverflow: "ellipsis", width: "100%" }}
-          >
-            {listLoading ? (
-              <option>Loading patients...</option>
-            ) : (
-              patients.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.display_name}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-
-        <div style={{ flex: "1 1 180px" }}>
-          <label className="form-label">Display Alias</label>
-          <input
-            className="form-input"
-            value={nameInput}
-            onChange={e => {
-              setNameInput(e.target.value);
-              setNameError(e.target.value.trim().length > 35 ? "Max 35 chars" : "");
-            }}
-            onBlur={() => {
-              const t = nameInput.trim();
-              if (t && t.length <= 35) setProfileName(selectedId, t);
-            }}
-            maxLength={36}
-            placeholder="Custom label..."
-          />
-          {nameError && <div className="form-error">{nameError}</div>}
-        </div>
-
-        <div>
-          <label className="form-label">Forecast Engine</label>
-          <div className="mode-toggle-group">
-            <button
-              type="button"
-              className={`mode-toggle-btn ${modelMode === "mechanistic" ? "active" : ""}`}
-              onClick={() => setModelMode("mechanistic")}
-              title="Bergman Minimal Model 3-compartment ODE"
+      <div className="overview-controls-bar">
+        <div className="overview-controls-grid">
+          <div className="overview-control-group patient-group">
+            <label className="form-label" htmlFor="overview-patient-select">Select Patient</label>
+            <select
+              id="overview-patient-select"
+              className="form-select overview-control-input"
+              value={selectedId}
+              onChange={e => setSelectedId(e.target.value)}
+              disabled={listLoading}
             >
-              Mechanistic ODE
-            </button>
-            <button
-              type="button"
-              className={`mode-toggle-btn ${modelMode === "hybrid" ? "active" : ""}`}
-              onClick={() => setModelMode("hybrid")}
-              title="Physics-Informed Hybrid Neural-ODE (ODE + GRU Residual)"
-            >
-              Hybrid Neural-ODE
-            </button>
+              {listLoading ? (
+                <option>Loading patients...</option>
+              ) : (
+                patients.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.display_name}
+                  </option>
+                ))
+              )}
+            </select>
           </div>
-        </div>
 
-        <div>
-          <label className="form-label">Data Window</label>
-          <div className="pill-group">
-            {[6, 12, 24, 48].map(h => (
+          <div className="overview-control-group alias-group">
+            <label className="form-label" htmlFor="overview-alias-input">Display Alias</label>
+            <input
+              id="overview-alias-input"
+              className="form-input overview-control-input"
+              value={nameInput}
+              onChange={e => {
+                setNameInput(e.target.value);
+                setNameError(e.target.value.trim().length > 35 ? "Max 35 chars" : "");
+              }}
+              onBlur={() => {
+                const t = nameInput.trim();
+                if (t && t.length <= 35) setProfileName(selectedId, t);
+              }}
+              maxLength={36}
+              placeholder="Custom label..."
+            />
+            {nameError && <div className="form-error">{nameError}</div>}
+          </div>
+
+          <div className="overview-control-group engine-group">
+            <label className="form-label">Forecast Engine</label>
+            <div className="mode-toggle-group overview-control-input">
               <button
-                key={h}
                 type="button"
-                className={`pill-btn ${windowHours === h ? "active" : ""}`}
-                onClick={() => setWindowHours(h)}
+                className={`mode-toggle-btn ${modelMode === "mechanistic" ? "active" : ""}`}
+                onClick={() => setModelMode("mechanistic")}
+                title="Bergman Minimal Model 3-compartment ODE"
               >
-                {h}h
+                Mechanistic ODE
               </button>
-            ))}
+              <button
+                type="button"
+                className={`mode-toggle-btn ${modelMode === "hybrid" ? "active" : ""}`}
+                onClick={() => setModelMode("hybrid")}
+                title="Physics-Informed Hybrid Neural-ODE (ODE + GRU Residual)"
+              >
+                Hybrid Neural-ODE
+              </button>
+            </div>
+          </div>
+
+          <div className="overview-control-group window-group">
+            <label className="form-label">Data Window</label>
+            <div className="pill-group overview-control-input">
+              {[6, 12, 24, 48].map(h => (
+                <button
+                  key={h}
+                  type="button"
+                  className={`pill-btn ${windowHours === h ? "active" : ""}`}
+                  onClick={() => setWindowHours(h)}
+                >
+                  {h}h
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
         {lastRefreshed && (
-          <div style={{ alignSelf: "center", fontSize: 11.5, color: "var(--text-secondary)", whiteSpace: "nowrap", marginLeft: "auto" }}>
+          <div className="overview-sync-status">
             Last sync: {lastRefreshed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </div>
         )}
@@ -4769,10 +4915,16 @@ export default function App() {
       {/* Compact Top Header */}
       <CompactHeader
         page={page}
+        setPage={setPage}
         sidebarCollapsed={sidebarCollapsed}
         setSidebarCollapsed={setSidebarCollapsed}
         mobileOpen={mobileOpen}
         setMobileOpen={setMobileOpen}
+        selectedId={selectedId}
+        patients={patients}
+        onUpdatePatient={(updated) => {
+          setPatients(prev => prev.map(p => p.id === updated.id ? updated : p));
+        }}
       />
 
       {/* Main Content Area */}
