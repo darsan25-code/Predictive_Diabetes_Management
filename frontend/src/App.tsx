@@ -13,11 +13,18 @@ import {
   ChevronLeft,
 } from "lucide-react";
 
-const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || "";
-if (apiBase) {
-  axios.defaults.baseURL = apiBase;
+// ── Shared Configurable API Base URL ──────────────────────────────────────────
+// Reads from VITE_API_BASE_URL (for Vercel or cloud deployment) while preserving
+// relative /api routing for local development (handled by Vite development proxy).
+const rawApiBase = ((import.meta as any).env?.VITE_API_BASE_URL || "").trim();
+let cleanApiBase = rawApiBase.replace(/\/+$/, "");
+if (cleanApiBase.endsWith("/api")) {
+  cleanApiBase = cleanApiBase.slice(0, -4);
 }
-axios.defaults.timeout = 12000;
+if (cleanApiBase) {
+  axios.defaults.baseURL = cleanApiBase;
+}
+axios.defaults.timeout = 15000;
 
 // ── Chart Visual Standards (Strictly standard across entire application) ──────
 const CHART_COLORS = {

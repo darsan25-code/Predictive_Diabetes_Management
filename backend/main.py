@@ -11,6 +11,7 @@ from __future__ import annotations
 import glob
 import json
 import logging
+import os
 import sqlite3
 import sys
 import uuid
@@ -36,9 +37,27 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# ---------------------------------------------------------------------------
+# CORS Configuration (Vercel Frontend + Localhost Support)
+# ---------------------------------------------------------------------------
+cors_env = os.environ.get("CORS_ORIGINS", "").strip()
+if cors_env:
+    allowed_origins = [o.strip() for o in cors_env.split(",") if o.strip()]
+else:
+    allowed_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "https://web-production-8b13aa.up.railway.app",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins if cors_env else ["*"],
+    allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
