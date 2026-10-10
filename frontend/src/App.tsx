@@ -10,9 +10,13 @@ import {
   CheckCircle2, Info, Menu, X, Sliders, Utensils, TrendingUp, TrendingDown,
   ArrowRight, Play, Pause, RotateCcw, Plus, Trash2, ChevronRight, Send,
   Bot, Zap, Scale, Ruler, Clock, BarChart3, Target, Eye, Moon,
-  ChevronLeft, ArrowLeftRight,
+  ChevronLeft,
 } from "lucide-react";
 
+const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || "";
+if (apiBase) {
+  axios.defaults.baseURL = apiBase;
+}
 axios.defaults.timeout = 12000;
 
 // ── Chart Visual Standards (Strictly standard across entire application) ──────
@@ -63,7 +67,15 @@ interface WhatIfResult {
     time_to_peak_h?: number;
     glucose_change_mgdL?: number;
   };
-  trace: { t_min: number; glucose_mgdL: number }[];
+  baseline_metrics?: {
+    peak_glucose_mgdL: number;
+    final_glucose_mgdL: number;
+    initial_glucose_mgdL?: number;
+    diff_peak_mgdL: number;
+    diff_final_mgdL: number;
+  };
+  model_mode?: string;
+  trace: { t_min: number; glucose_mgdL: number; baseline_glucose_mgdL?: number; mech_glucose_mgdL?: number }[];
   meal_time_h?: number;
   meal_cho_g?: number;
   bolus_insulin_mU?: number;
@@ -416,8 +428,8 @@ const TREND_INFO: Record<string, { text: string; icon: React.FC<any>; color: str
 
 const Spinner = () => <span className="loading-spinner" aria-label="Loading" />;
 
-const Badge = ({ label, type = "neutral", icon: Icon }: { label: string; type?: string; icon?: React.FC<any> }) => (
-  <span className={`badge badge-${type}`}>
+const Badge = ({ label, type = "neutral", icon: Icon, className = "" }: { label: string; type?: string; icon?: React.FC<any>; className?: string }) => (
+  <span className={`badge badge-${type} ${className}`.trim()}>
     {Icon && <Icon size={12} />}
     <span>{label}</span>
   </span>
@@ -560,7 +572,7 @@ function CompactHeader({
         ) : (
           <Badge label="Connecting..." type="neutral" icon={RefreshCw} />
         )}
-        <Badge label="Local Execution Only" type="neutral" icon={ShieldCheck} />
+        <Badge label="Local Execution Only" type="neutral" icon={ShieldCheck} className="header-local-badge" />
         <div className="header-avatar" title="Research User Profile">
           <User size={16} />
         </div>
@@ -856,8 +868,212 @@ function PatientListPanel({ patients, selectedId, onSelect, onRefresh, loading }
   );
 }
 
+// ── Edit Patient Profile Modal ─────────────────────────────────────────────
+function EditPatientModal({
+  profile,
+  onClose,
+  onUpdated,
+}: {
+  profile: PatientListItem;
+  onClose: () => void;
+  onUpdated: (updated: PatientListItem) => void;
+}) {
+  const [displayName, setDisplayName] = useState(profile.display_name || "");
+  const [age, setAge] = useState<string>(profile.age != null ? String(profile.age) : "");
+  const [heightCm, setHeightCm] = useState<string>(profile.height_cm != null ? String(profile.height_cm) : "");
+  const [weightKg, setWeightKg] = useState<string>(profile.weight_kg != null ? String(profile.weight_kg) : "");
+  const [sex, setSex] = useState(profile.sex || "");
+  const [notes, setNotes] = useState(profile.notes || "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const numH = parseFloat(heightCm);
+  const numW = parseFloat(weightKg);
+  const previewBmi = (!isNaN(numH) && numH > 0 && !isNaN(numW) && numW > 0)
+    ? (numW / ((numH / 100) * (numH / 100))).toFixed(1)
+    : null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!displayName.trim()) {
+      setErr("Patient display name is required.");
+      return;
+    }
+    setSaving(true);
+    setErr("");
+
+    const payload: any = {
+      display_name: displayName.trim(),
+      notes: notes.trim(),
+      sex: sex.trim() || null,
+    };
+    if (age.trim()) {
+      const a = parseInt(age, 10);
+      if (isNaN(a) || a < 1 || a > 120) {
+        setErr("Age must be between 1 and 120 years.");
+        setSaving(false);
+        return;
+      }
+      payload.age = a;
+    } else {
+      payload.age = null;
+    }
+    if (heightCm.trim()) {
+      const h = parseFloat(heightCm);
+      if (isNaN(h) || h < 30 || h > 300) {
+        setErr("Height must be between 30 and 300 cm.");
+        setSaving(false);
+        return;
+      }
+      payload.height_cm = h;
+    } else {
+      payload.height_cm = null;
+    }
+    if (weightKg.trim()) {
+      const w = parseFloat(weightKg);
+      if (isNaN(w) || w < 1 || w > 500) {
+        setErr("Weight must be between 1 and 500 kg.");
+        setSaving(false);
+        return;
+      }
+      payload.weight_kg = w;
+    } else {
+      payload.weight_kg = null;
+    }
+
+    try {
+      const resp = await axios.put(`/api/patients/${profile.id}`, payload);
+      onUpdated({ ...profile, ...resp.data });
+      onClose();
+    } catch (ex: any) {
+      setErr(ex.response?.data?.detail || "Failed to update profile.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-panel">
+        <div className="modal-header">
+          <h3><User size={16} />Edit Patient Profile — {profile.id}</h3>
+          <button type="button" className="btn btn-ghost" style={{ padding: "4px 8px" }} onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            {err && (
+              <div className="error-box mb-3">
+                <AlertTriangle size={15} />
+                <span>{err}</span>
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">Display Name / Alias *</label>
+              <input
+                className="form-input"
+                value={displayName}
+                onChange={e => setDisplayName(e.target.value)}
+                placeholder="Patient Display Name"
+                maxLength={100}
+                required
+              />
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Age (years)</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min={1}
+                  max={120}
+                  value={age}
+                  onChange={e => setAge(e.target.value)}
+                  placeholder="e.g. 35"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Biological Sex</label>
+                <select className="form-select" value={sex} onChange={e => setSex(e.target.value)}>
+                  <option value="">Not specified</option>
+                  <option>Male</option>
+                  <option>Female</option>
+                  <option>Non-binary</option>
+                  <option>Prefer not to say</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Height (cm)</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  step="0.1"
+                  min={30}
+                  max={300}
+                  value={heightCm}
+                  onChange={e => setHeightCm(e.target.value)}
+                  placeholder="175.0"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Weight (kg)</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  step="0.1"
+                  min={1}
+                  max={500}
+                  value={weightKg}
+                  onChange={e => setWeightKg(e.target.value)}
+                  placeholder="70.0"
+                />
+              </div>
+            </div>
+
+            {previewBmi && (
+              <div style={{ background: "var(--bg-secondary)", padding: "10px 14px", borderRadius: "var(--radius-sm)", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>Calculated BMI Preview:</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "var(--emerald-700)" }}>{previewBmi} kg/m² ({bmiCategory(Number(previewBmi))})</span>
+              </div>
+            )}
+
+            <div className="form-group">
+              <label className="form-label">Profile Notes</label>
+              <textarea
+                className="form-textarea"
+                rows={2}
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                maxLength={500}
+                placeholder="Clinical context or benchmark notes..."
+              />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? <><Spinner /> Saving...</> : "Save Profile"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Patient Profile Card ──────────────────────────────────────────────────────
-function ProfileCard({ profile, params }: { profile: PatientListItem | null; params: PatientParameters | null; }) {
+function ProfileCard({
+  profile,
+  params,
+  onUpdateProfile,
+}: {
+  profile: PatientListItem | null;
+  params: PatientParameters | null;
+  onUpdateProfile?: (updated: PatientListItem) => void;
+}) {
+  const [showEdit, setShowEdit] = useState(false);
+
   if (!profile) {
     return (
       <div className="card">
@@ -872,99 +1088,124 @@ function ProfileCard({ profile, params }: { profile: PatientListItem | null; par
   const bmiCat = bmiCategory(bmi);
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <h3><User size={15} />Patient Profile</h3>
-        <Badge
-          label={profile.is_synthetic ? "Synthetic Benchmark" : "Custom Profile"}
-          type={profile.is_synthetic ? "neutral" : "teal"}
-        />
-      </div>
-      <div className="profile-card">
-        <div className="profile-identity">
-          <div className={`profile-big-avatar ${profile.is_synthetic ? "synthetic" : "user"}`}>
-            {avatarInitials(profile.display_name)}
-          </div>
-          <div className="profile-id-text">
-            <h4>{profile.display_name}</h4>
-            <p>{profile.category} · {profile.id}</p>
-            {profile.notes && (
-              <p style={{ marginTop: 4, fontSize: 12, color: "var(--text-secondary)", fontStyle: "italic" }}>
-                {profile.notes}
-              </p>
+    <>
+      <div className="card">
+        <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h3><User size={15} />Patient Profile</h3>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <Badge
+              label={profile.is_synthetic ? "Synthetic Benchmark" : "Custom Profile"}
+              type={profile.is_synthetic ? "neutral" : "teal"}
+            />
+            {onUpdateProfile && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ fontSize: 11.5, padding: "3px 8px" }}
+                onClick={() => setShowEdit(true)}
+              >
+                Edit
+              </button>
             )}
           </div>
         </div>
-
-        {[
-          { icon: User,     label: "Age",    val: profile.age       ? `${profile.age} yrs`      : "—" },
-          { icon: Scale,    label: "Weight", val: profile.weight_kg ? `${profile.weight_kg} kg` : "—" },
-          { icon: Ruler,    label: "Height", val: profile.height_cm ? `${profile.height_cm} cm` : "—" },
-          { icon: Activity, label: "BMI",    val: bmi ? `${bmi}` : "—", sub: bmiCat ?? "" },
-        ].map((s: any) => (
-          <div key={s.label} className="profile-stat">
-            <div className="stat-icon"><s.icon size={12} /> {s.label}</div>
-            <div className="stat-val">{s.val} {s.sub && <span className="stat-unit">({s.sub})</span>}</div>
-          </div>
-        ))}
-
-        {params && (
-          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-              <Zap size={13} style={{ color: "var(--emerald-600)" }} />
-              Bergman Model Parameters
+        <div className="profile-card">
+          <div className="profile-identity">
+            <div className={`profile-big-avatar ${profile.is_synthetic ? "synthetic" : "user"}`}>
+              {avatarInitials(profile.display_name)}
             </div>
-            <table className="baseline-table">
-              <tbody>
-                <tr>
-                  <td>Fasting Glucose (G<sub>b</sub>)</td>
-                  <td>{params.parameters.Gb.toFixed(1)} mg/dL</td>
-                </tr>
-                <tr>
-                  <td>Baseline Insulin (I<sub>b</sub>)</td>
-                  <td>{params.parameters.Ib.toFixed(1)} mU/L</td>
-                </tr>
-                <tr>
-                  <td>Insulin Sensitivity (S<sub>I</sub>)</td>
-                  <td>{params.si_estimate.formatted} <span style={{ fontSize: 10, color: "var(--text-secondary)" }}>{params.si_estimate.unit}</span></td>
-                </tr>
-                <tr>
-                  <td>Glucose Effectiveness (S<sub>G</sub>)</td>
-                  <td>{params.sg_estimate.formatted} <span style={{ fontSize: 10, color: "var(--text-secondary)" }}>{params.sg_estimate.unit}</span></td>
-                </tr>
-                <tr>
-                  <td>Calibration Fit RMSE</td>
-                  <td>{params.parameters.rmse_calibrated.toFixed(2)} mg/dL</td>
-                </tr>
-              </tbody>
-            </table>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 8, lineHeight: 1.4 }}>
-              * Calibrated from benchmark in silico dataset. Not a direct clinical measurement.
+            <div className="profile-id-text">
+              <h4>{profile.display_name}</h4>
+              <p>{profile.category} · ID: {profile.id}</p>
+              {profile.notes ? (
+                <p style={{ marginTop: 4, fontSize: 12, color: "var(--text-secondary)", fontStyle: "italic" }}>
+                  {profile.notes}
+                </p>
+              ) : (
+                <p style={{ marginTop: 4, fontSize: 11.5, color: "var(--text-muted)" }}>
+                  No profile notes recorded.
+                </p>
+              )}
             </div>
           </div>
-        )}
 
-        {!params && !profile.is_synthetic && (
-          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)", marginBottom: 8 }}>
-              Baseline Configuration
+          {[
+            { icon: User,     label: "Age",    val: profile.age != null ? `${profile.age} yrs` : "Not provided" },
+            { icon: Scale,    label: "Weight", val: profile.weight_kg != null ? `${profile.weight_kg} kg` : "Not provided" },
+            { icon: Ruler,    label: "Height", val: profile.height_cm != null ? `${profile.height_cm} cm` : "Not provided" },
+            { icon: Activity, label: "BMI",    val: bmi != null ? `${bmi}` : "Not provided", sub: bmiCat ?? "" },
+          ].map((s: any) => (
+            <div key={s.label} className="profile-stat">
+              <div className="stat-icon"><s.icon size={12} /> {s.label}</div>
+              <div className="stat-val">{s.val} {s.sub && <span className="stat-unit">({s.sub})</span>}</div>
             </div>
-            <table className="baseline-table">
-              <tbody>
-                <tr>
-                  <td>Baseline Glucose</td>
-                  <td>{profile.baseline_glucose_mgdL ? `${profile.baseline_glucose_mgdL} mg/dL` : "100.0 mg/dL (Default)"}</td>
-                </tr>
-                <tr>
-                  <td>Simulation ODE Model</td>
-                  <td>Bergman Minimal Model</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
+          ))}
+
+          {params && (
+            <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                <Zap size={13} style={{ color: "var(--emerald-600)" }} />
+                Calibrated Bergman Parameters
+              </div>
+              <table className="baseline-table">
+                <tbody>
+                  <tr>
+                    <td>Fasting Glucose (G<sub>b</sub>)</td>
+                    <td>{params.parameters.Gb.toFixed(1)} mg/dL</td>
+                  </tr>
+                  <tr>
+                    <td>Baseline Insulin (I<sub>b</sub>)</td>
+                    <td>{params.parameters.Ib.toFixed(1)} mU/L</td>
+                  </tr>
+                  <tr>
+                    <td>Insulin Sensitivity (S<sub>I</sub>)</td>
+                    <td>{params.si_estimate.formatted} <span style={{ fontSize: 10, color: "var(--text-secondary)" }}>{params.si_estimate.unit}</span></td>
+                  </tr>
+                  <tr>
+                    <td>Glucose Effectiveness (S<sub>G</sub>)</td>
+                    <td>{params.sg_estimate.formatted} <span style={{ fontSize: 10, color: "var(--text-secondary)" }}>{params.sg_estimate.unit}</span></td>
+                  </tr>
+                  <tr>
+                    <td>Calibration Fit RMSE</td>
+                    <td>{params.parameters.rmse_calibrated.toFixed(2)} mg/dL</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 8, lineHeight: 1.4 }}>
+                * Calibrated from benchmark in silico dataset. Not a direct clinical measurement.
+              </div>
+            </div>
+          )}
+
+          {!params && !profile.is_synthetic && (
+            <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)", marginBottom: 8 }}>
+                Baseline Configuration
+              </div>
+              <table className="baseline-table">
+                <tbody>
+                  <tr>
+                    <td>Baseline Glucose</td>
+                    <td>{profile.baseline_glucose_mgdL ? `${profile.baseline_glucose_mgdL} mg/dL` : "100.0 mg/dL (Default)"}</td>
+                  </tr>
+                  <tr>
+                    <td>Simulation ODE Model</td>
+                    <td>Bergman Minimal Model</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+      {showEdit && onUpdateProfile && (
+        <EditPatientModal
+          profile={profile}
+          onClose={() => setShowEdit(false)}
+          onUpdated={onUpdateProfile}
+        />
+      )}
+    </>
   );
 }
 
@@ -1983,65 +2224,92 @@ function OverviewPage({
   );
 }
 
-// ── Digital Twin Architecture 4-Stage Pipeline ──────────────────────────────
+// ── Digital Twin Architecture Compact Summary & Expandable Pipeline ────────
 function DigitalTwinArchitecturePanel() {
+  const [isExpanded, setIsExpanded] = useState(false);
+
   return (
     <div className="card mb-4">
-      <div className="card-header">
-        <h3><Sliders size={15} />How the Digital Twin Works — 4-Stage Execution Pipeline</h3>
-        <Badge label="Physics-Informed Architecture" type="teal" />
-      </div>
-      <div className="card-body">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
-          {/* Stage 1 */}
-          <div style={{ padding: 14, borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--emerald-800)", textTransform: "uppercase" }}>Stage 1</span>
-              <span className="model-tag live">Live Data Input</span>
-            </div>
-            <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)", marginBottom: 4 }}>Continuous Telemetry</div>
-            <p style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-              Ingests 5-minute CGM glucose traces, carbohydrate meal events, and basal/bolus insulin delivery history.
-            </p>
-          </div>
-
-          {/* Stage 2 */}
-          <div style={{ padding: 14, borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--emerald-800)", textTransform: "uppercase" }}>Stage 2</span>
-              <span className="model-tag live">Live ODE Sim</span>
-            </div>
-            <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)", marginBottom: 4 }}>Mechanistic Minimal ODE</div>
-            <p style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-              Bergman 3-compartment ODE numerically integrates glucose-insulin kinetics: dG/dt, dX/dt, dI/dt with patient-specific calibrated S_I and S_G.
-            </p>
-          </div>
-
-          {/* Stage 3 */}
-          <div style={{ padding: 14, borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--emerald-800)", textTransform: "uppercase" }}>Stage 3</span>
-              <span className="model-tag live">Live + EKF Batch</span>
-            </div>
-            <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)", marginBottom: 4 }}>Residual GRU &amp; Kalman Filter</div>
-            <p style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-              Physics-Informed GRU learns high-frequency physiological residuals; Extended Kalman Filter reconstructs continuous hidden states with uncertainty intervals.
-            </p>
-          </div>
-
-          {/* Stage 4 */}
-          <div style={{ padding: 14, borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--emerald-800)", textTransform: "uppercase" }}>Stage 4</span>
-              <span className="model-tag offline">Offline Research</span>
-            </div>
-            <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)", marginBottom: 4 }}>MPC &amp; Safety Shield</div>
-            <p style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-              Predictive control (MPC) and RL optimization evaluated with safety-shield boundaries. Strictly research; no real-world dosing connections.
-            </p>
-          </div>
+      <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Sliders size={16} style={{ color: "var(--emerald-600)" }} />
+            Physiological Digital Twin Engine
+          </h3>
+          <p style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: 2 }}>
+            Simulates dynamic glucose-insulin metabolism from continuous sensor telemetry using the Bergman Minimal Model ODE.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Badge label="Live Model: Bergman ODE" type="target" icon={Zap} />
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ fontSize: "12px", padding: "4px 10px", display: "inline-flex", alignItems: "center", gap: 6 }}
+            onClick={() => setIsExpanded(!isExpanded)}
+          >
+            {isExpanded ? "Hide Details" : "Learn How It Works"}
+            <ChevronRight size={13} style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+          </button>
         </div>
       </div>
+
+      {isExpanded && (
+        <div className="card-body" style={{ borderTop: "1px solid var(--border-color)", paddingTop: 16 }}>
+          <div style={{ fontSize: "12.5px", color: "var(--text-main)", marginBottom: 14, lineHeight: 1.5 }}>
+            The digital twin runs an end-to-end computational pipeline translating raw observations into predictive simulations and state estimation:
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+            {/* Stage 1 */}
+            <div style={{ padding: 14, borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--emerald-800)", textTransform: "uppercase" }}>Stage 1</span>
+                <span className="model-tag live">Live Sensor Stream</span>
+              </div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)", marginBottom: 4 }}>Continuous Sensor Data</div>
+              <p style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                Ingests 5-minute CGM glucose readings, carbohydrate meals, and basal insulin delivery from synthetic benchmark profiles.
+              </p>
+            </div>
+
+            {/* Stage 2 */}
+            <div style={{ padding: 14, borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--emerald-800)", textTransform: "uppercase" }}>Stage 2</span>
+                <span className="model-tag live">Live Simulation Engine</span>
+              </div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)", marginBottom: 4 }}>Physiological Model</div>
+              <p style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                Numerically simulates glucose dynamics using the Bergman 3-compartment Minimal Model ODE (dG/dt, dX/dt, dI/dt) with calibrated insulin sensitivity.
+              </p>
+            </div>
+
+            {/* Stage 3 */}
+            <div style={{ padding: 14, borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--emerald-800)", textTransform: "uppercase" }}>Stage 3</span>
+                <span className="model-tag live">On-Demand Filter</span>
+              </div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)", marginBottom: 4 }}>State Estimation (EKF)</div>
+              <p style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                Extended Kalman Filter reconstructs unmeasured internal physiological states (remote insulin action and plasma insulin) with uncertainty bounds.
+              </p>
+            </div>
+
+            {/* Stage 4 */}
+            <div style={{ padding: 14, borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>Stage 4</span>
+                <span className="model-tag offline">Offline Research Only</span>
+              </div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)", marginBottom: 4 }}>Research Models (GRU &amp; MPC)</div>
+              <p style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                Evaluates deep residual GRU learning and MPC controllers in offline benchmark experiments. Not active in the default live simulation path.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2280,6 +2548,7 @@ function DigitalTwinPage({
   const [simResponse, setSimResponse] = useState<LiveSimulationResponse | null>(null);
   const [simLoading, setSimLoading] = useState(false);
   const [simError, setSimError] = useState("");
+  const [showSimParams, setShowSimParams] = useState(false);
 
   const fetchPatients = useCallback(() => {
     setPatientsLoading(true);
@@ -2297,10 +2566,19 @@ function DigitalTwinPage({
 
   const displayName = profile?.display_name ?? patients.find(p => p.id === selectedId)?.display_name ?? selectedId;
 
+  const handleProfileUpdated = (updated: PatientListItem) => {
+    setProfile(updated);
+    setPatients(prev => prev.map(p => (p.id === updated.id ? { ...p, ...updated } : p)));
+    fetchPatients();
+  };
+
   useEffect(() => {
     if (!selectedId) return;
     const found = patients.find(p => p.id === selectedId);
     if (found) setProfile(found);
+    axios.get(`/api/patients/${selectedId}/profile`)
+      .then(r => setProfile(r.data))
+      .catch(() => {});
     axios.get(`/api/patients/${selectedId}/parameters`)
       .then(r => setParams(r.data))
       .catch(() => setParams(null));
@@ -2389,7 +2667,7 @@ function DigitalTwinPage({
       <DigitalTwinArchitecturePanel />
 
       <div className="dashboard-grid">
-        {/* Left column */}
+        {/* Left column: Chart & Simulation Results */}
         <div className="dashboard-left">
           {dataError && (
             <div className="error-box">
@@ -2421,18 +2699,16 @@ function DigitalTwinPage({
             />
           )}
 
-          <KeyMetricsRow data={data} simResponse={simResponse} />
-          <HealthInsights data={data} simResponse={simResponse} />
-          <MealLogger patientId={selectedId} patientName={displayName} />
-          <EKFStatePanel patientId={selectedId} patientName={displayName} />
-
           {simResponse && (
             <div className="card">
-              <div className="card-header">
-                <h3><Zap size={15} />Simulation Summary</h3>
-                <Badge label="Bergman Minimal Model" type="teal" />
+              <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h3><Zap size={15} />Simulation Summary &amp; Results</h3>
+                <Badge label="Bergman Minimal Model (ODE)" type="teal" />
               </div>
               <div className="card-body">
+                <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginBottom: 12 }}>
+                  Simulation Status: <strong>Complete</strong> · Modeled Window: <strong>{simDuration} Hours</strong> · Patient: <strong>{displayName}</strong>
+                </div>
                 <div className="metrics-row" style={{ marginBottom: 12 }}>
                   {[
                     { label: "Initial Glucose", val: `${simResponse.summary.initial_glucose_mgdL} mg/dL`, Icon: Activity, cls: "neutral" },
@@ -2451,24 +2727,41 @@ function DigitalTwinPage({
                     </div>
                   ))}
                 </div>
-                <div style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.45 }}>
-                  * S_I = {simResponse.parameters.Si?.toFixed?.(5) ?? "—"}, S_G = {simResponse.parameters.Sg?.toFixed?.(4) ?? "—"} · {DISCLAIMER}
+
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    className="btn-link-subtle"
+                    onClick={() => setShowSimParams(!showSimParams)}
+                    style={{ fontSize: 12 }}
+                  >
+                    {showSimParams ? "Hide Technical Parameters" : "View Calibrated Parameters & Equations"}
+                  </button>
+                  {showSimParams && (
+                    <div style={{ marginTop: 8, padding: 12, background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", fontSize: 12, color: "var(--text-body)", lineHeight: 1.55 }}>
+                      <div><strong>Insulin Sensitivity (S_I):</strong> {simResponse.parameters.Si?.toFixed?.(5) ?? "—"} L / (mU · min)</div>
+                      <div><strong>Glucose Effectiveness (S_G):</strong> {simResponse.parameters.Sg?.toFixed?.(4) ?? "—"} min⁻¹</div>
+                      <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--text-secondary)" }}>
+                        * Bergman 3-compartment ODE integration. {DISCLAIMER}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           )}
+
+          <KeyMetricsRow data={data} simResponse={simResponse} />
+          <HealthInsights data={data} simResponse={simResponse} />
         </div>
 
-        {/* Right column */}
+        {/* Right column: Patient Profile & Simulation Controls */}
         <div className="dashboard-right">
-          <PatientListPanel
-            patients={patients}
-            selectedId={selectedId}
-            onSelect={id => { setSelectedId(id); setSimState("idle"); setSimResponse(null); }}
-            onRefresh={fetchPatients}
-            loading={patientsLoading}
+          <ProfileCard
+            profile={profile}
+            params={params}
+            onUpdateProfile={handleProfileUpdated}
           />
-          <ProfileCard profile={profile} params={params} />
           <SimulationControls
             simState={simState}
             simDuration={simDuration}
@@ -2479,6 +2772,29 @@ function DigitalTwinPage({
             onReset={() => { setSimState("idle"); setSimResponse(null); setSimError(""); }}
             loading={simLoading}
           />
+        </div>
+      </div>
+
+      {/* Secondary Research Tools in Separated Section */}
+      <div style={{ marginTop: 24 }}>
+        <div className="section-divider-title" style={{ marginBottom: 16 }}>
+          <span>Secondary Research Tools &amp; Historical Analysis</span>
+          <Badge label="Extended Exploration" type="neutral" />
+        </div>
+        <div className="grid-2">
+          <MealLogger patientId={selectedId} patientName={displayName} />
+          <PatientListPanel
+            patients={patients}
+            selectedId={selectedId}
+            onSelect={id => { setSelectedId(id); setSimState("idle"); setSimResponse(null); }}
+            onRefresh={fetchPatients}
+            loading={patientsLoading}
+          />
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <EKFStatePanel patientId={selectedId} patientName={displayName} />
+        </div>
+        <div style={{ marginTop: 16 }}>
           <HealthAssistant
             patientId={selectedId}
             patientName={displayName}
@@ -2496,6 +2812,8 @@ function WhatIfPage() {
   const [patients, setPatients] = useState<PatientListItem[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string>("synthetic_000");
   const [modelMode, setModelMode] = useState<"mechanistic" | "hybrid">("mechanistic");
+  const [showAbout, setShowAbout] = useState(false);
+  const [showEquations, setShowEquations] = useState(false);
 
   const [form, setForm] = useState({
     scenarioName: "Standard Meal",
@@ -2514,8 +2832,6 @@ function WhatIfPage() {
   });
 
   const [result, setResult] = useState<WhatIfResult | null>(null);
-  const [previousResult, setPreviousResult] = useState<WhatIfResult | null>(null);
-  const [showComparison, setShowComparison] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -2544,7 +2860,7 @@ function WhatIfPage() {
       exerciseIntensity: "None",
     },
     {
-      name: "High-Carbohydrate Meal",
+      name: "High-Carb Meal",
       mealCho: 75,
       mealTime: 1.0,
       basalInsulin: 15,
@@ -2557,7 +2873,7 @@ function WhatIfPage() {
       exerciseIntensity: "None",
     },
     {
-      name: "Light Activity Scenario",
+      name: "Light Activity",
       mealCho: 30,
       mealTime: 0.5,
       basalInsulin: 15,
@@ -2570,7 +2886,7 @@ function WhatIfPage() {
       exerciseIntensity: "Light",
     },
     {
-      name: "Moderate Activity Scenario",
+      name: "Moderate Activity",
       mealCho: 45,
       mealTime: 1.0,
       basalInsulin: 15,
@@ -2583,7 +2899,7 @@ function WhatIfPage() {
       exerciseIntensity: "Moderate",
     },
     {
-      name: "Reduced Sleep Scenario",
+      name: "Reduced Sleep",
       mealCho: 50,
       mealTime: 1.0,
       basalInsulin: 15,
@@ -2595,20 +2911,9 @@ function WhatIfPage() {
       exerciseDuration: 0,
       exerciseIntensity: "None",
     },
-    {
-      name: "Combined Meal & Activity",
-      mealCho: 60,
-      mealTime: 1.0,
-      basalInsulin: 15,
-      bolusInsulin: 150,
-      duration: 6,
-      sleepDuration: 7,
-      sleepQuality: "Average",
-      exerciseType: "Cycling",
-      exerciseDuration: 45,
-      exerciseIntensity: "Moderate",
-    },
   ];
+
+  const [isStale, setIsStale] = useState(false);
 
   const applyPreset = (p: typeof PRESETS[0]) => {
     setForm(prev => ({
@@ -2625,15 +2930,22 @@ function WhatIfPage() {
       exerciseDuration: p.exerciseDuration,
       exerciseIntensity: p.exerciseIntensity,
     }));
+    if (result) setIsStale(true);
   };
 
   const run = async () => {
+    if (form.mealCho < 0 || form.mealCho > 200) {
+      setError("Meal carbohydrates must be between 0 and 200g.");
+      return;
+    }
+    if (form.duration < 0.5 || form.duration > 24) {
+      setError("Duration must be between 0.5 and 24 hours.");
+      return;
+    }
+
     setLoading(true);
     setError("");
     try {
-      if (result) {
-        setPreviousResult(result);
-      }
       const r = await axios.post("/api/whatif", {
         scenario_name: form.scenarioName,
         patient_id: selectedPatientId,
@@ -2652,6 +2964,7 @@ function WhatIfPage() {
         model_mode: modelMode,
       });
       setResult(r.data);
+      setIsStale(false);
     } catch (e: any) {
       setError(e.response?.data?.detail || "Simulation execution failed.");
     } finally {
@@ -2659,58 +2972,64 @@ function WhatIfPage() {
     }
   };
 
-  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k: string, v: any) => {
+    setForm(f => ({ ...f, [k]: v }));
+    if (result) setIsStale(true);
+  };
 
   const comparisonChartData = useMemo(() => {
     if (!result) return [];
-    if (!previousResult || !showComparison) {
-      return result.trace.map(pt => ({
-        t_min: pt.t_min,
-        sim_glucose_mgdL: pt.glucose_mgdL,
-      }));
-    }
-    const mapPrev: Record<number, number> = {};
-    previousResult.trace.forEach(pt => { mapPrev[Math.round(pt.t_min)] = pt.glucose_mgdL; });
     return result.trace.map(pt => ({
       t_min: pt.t_min,
       sim_glucose_mgdL: pt.glucose_mgdL,
-      baseline_glucose_mgdL: mapPrev[Math.round(pt.t_min)],
+      baseline_glucose_mgdL: pt.baseline_glucose_mgdL,
     }));
-  }, [result, previousResult, showComparison]);
+  }, [result]);
 
   const selectedPatientName = patients.find(p => p.id === selectedPatientId)?.display_name || selectedPatientId;
 
   return (
     <div>
+      {/* Header */}
       <div className="page-header">
         <div className="page-header-title">
           <h2>
             <FlaskConical size={22} style={{ color: "var(--emerald-600)" }} />
-            What-If Scenario Lab
+            What-If Scenario Simulation
           </h2>
-          <p>Simulate meal absorption, sleep context, and exercise dynamics using the Bergman Minimal Model.</p>
+          <p>Explore hypothetical meal and activity scenarios to observe simulated glucose dynamics compared to standard baseline.</p>
         </div>
         <div className="page-header-actions">
-          <Badge label="In Silico Experimentation" type="teal" icon={Sliders} />
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setShowAbout(!showAbout)}
+            style={{ fontSize: 12, padding: "4px 10px", display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <Info size={13} />
+            {showAbout ? "Hide About" : "About This Simulation"}
+          </button>
         </div>
       </div>
 
-      <div className="info-callout mb-4">
-        <FlaskConical size={18} className="info-callout-icon" />
-        <div className="info-callout-text">
-          <h4>Research Simulation Environment</h4>
-          <p>
-            The Bergman Minimal Model numerically simulates glucose-insulin kinetics from carbohydrate ingestion and basal insulin delivery.
-            Sleep and exercise inputs are captured as research scenario metadata. All outputs are synthetic trajectories for research analysis.
-          </p>
+      {showAbout && (
+        <div className="info-callout mb-4">
+          <FlaskConical size={18} className="info-callout-icon" />
+          <div className="info-callout-text">
+            <h4>Simulation Model Context &amp; Assumptions</h4>
+            <p>
+              The digital twin simulates glucose kinetics using the Bergman Minimal Model differential equations.
+              Carbohydrate meals are modeled via a standard gastrointestinal absorption profile. Sleep quality and physical activities are recorded as research metadata to document scenario context. All outputs are synthetic in silico projections for exploratory research.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="grid-2">
+      <div className="whatif-grid">
         {/* Left Column: Simulation Inputs */}
         <div className="card">
           <div className="card-header">
-            <h3><Sliders size={15} />Simulation Inputs</h3>
+            <h3><Sliders size={15} />Scenario Configuration</h3>
             <Badge label="Bergman ODE Model" type="neutral" />
           </div>
           <div className="card-body">
@@ -2720,7 +3039,11 @@ function WhatIfPage() {
               <select
                 className="form-select"
                 value={selectedPatientId}
-                onChange={e => setSelectedPatientId(e.target.value)}
+                onChange={e => {
+                  setSelectedPatientId(e.target.value);
+                  setResult(null);
+                  setIsStale(false);
+                }}
               >
                 {patients.map(p => (
                   <option key={p.id} value={p.id}>{p.display_name} ({p.category})</option>
@@ -2734,7 +3057,10 @@ function WhatIfPage() {
                 <button
                   type="button"
                   className={`mode-toggle-btn ${modelMode === "mechanistic" ? "active" : ""}`}
-                  onClick={() => setModelMode("mechanistic")}
+                  onClick={() => {
+                    setModelMode("mechanistic");
+                    if (result) setIsStale(true);
+                  }}
                   style={{ flex: 1 }}
                 >
                   Mechanistic Minimal ODE
@@ -2742,17 +3068,20 @@ function WhatIfPage() {
                 <button
                   type="button"
                   className={`mode-toggle-btn ${modelMode === "hybrid" ? "active" : ""}`}
-                  onClick={() => setModelMode("hybrid")}
+                  onClick={() => {
+                    setModelMode("hybrid");
+                    if (result) setIsStale(true);
+                  }}
                   style={{ flex: 1 }}
                 >
-                  Hybrid Neural-ODE (PiNN)
+                  Hybrid Neural-ODE
                 </button>
               </div>
             </div>
 
             {/* Quick Presets */}
             <div className="form-group">
-              <label className="form-label">Scenario Presets</label>
+              <label className="form-label">Quick Scenario Presets</label>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {PRESETS.map(p => (
                   <button
@@ -2769,8 +3098,8 @@ function WhatIfPage() {
 
             {/* Section A: Core Scenario & Meal */}
             <div className="section-divider-title">
-              <span>A. Scenario &amp; Meal Inputs</span>
-              <Badge label="Modeled via ODE" type="target" />
+              <span>A. Meal &amp; Insulin Inputs</span>
+              <Badge label="ODE Modeled" type="target" />
             </div>
 
             <div className="form-group">
@@ -2779,6 +3108,7 @@ function WhatIfPage() {
                 className="form-input"
                 value={form.scenarioName}
                 onChange={e => set("scenarioName", e.target.value)}
+                placeholder="Scenario label"
               />
             </div>
 
@@ -2820,7 +3150,7 @@ function WhatIfPage() {
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Basal Insulin (mU/min)</label>
+                <label className="form-label">Basal Delivery (mU/min)</label>
                 <input
                   className="form-input"
                   type="number"
@@ -2833,10 +3163,10 @@ function WhatIfPage() {
               </div>
             </div>
 
-            {/* Section B: Sleep Information */}
+            {/* Section B: Sleep Context */}
             <div className="section-divider-title">
-              <span>B. Sleep Scenario</span>
-              <Badge label="Experimental Metadata" type="neutral" />
+              <span>B. Sleep Context</span>
+              <Badge label="Contextual Metadata (Not ODE Modeled)" type="neutral" />
             </div>
             <div className="grid-2">
               <div className="form-group">
@@ -2864,11 +3194,14 @@ function WhatIfPage() {
                 </select>
               </div>
             </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 12 }}>
+              * Sleep metadata is recorded as observational context and does not alter the minimal ODE kinetics.
+            </div>
 
-            {/* Section C: Exercise Information */}
+            {/* Section C: Exercise Context */}
             <div className="section-divider-title">
-              <span>C. Exercise Scenario</span>
-              <Badge label="Experimental Metadata" type="neutral" />
+              <span>C. Physical Activity Context</span>
+              <Badge label="Contextual Metadata (Not ODE Modeled)" type="neutral" />
             </div>
             <div className="grid-2">
               <div className="form-group">
@@ -2898,48 +3231,35 @@ function WhatIfPage() {
                   disabled={form.exerciseType === "None"}
                 />
               </div>
-              <div className="form-group">
-                <label className="form-label">Intensity</label>
-                <select
-                  className="form-select"
-                  value={form.exerciseIntensity}
-                  onChange={e => set("exerciseIntensity", e.target.value)}
-                  disabled={form.exerciseType === "None"}
-                >
-                  <option>None</option>
-                  <option>Light</option>
-                  <option>Moderate</option>
-                  <option>Vigorous</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Start Time (h)</label>
-                <input
-                  className="form-input"
-                  type="number"
-                  min={0}
-                  max={23}
-                  step={0.5}
-                  value={form.exerciseStartTime}
-                  onChange={e => set("exerciseStartTime", Number(e.target.value))}
-                  disabled={form.exerciseType === "None"}
-                />
-              </div>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 16 }}>
+              * Activity metadata is recorded as observational context and does not alter the minimal ODE kinetics.
             </div>
 
             <button
               className="btn btn-primary w-full"
-              style={{ marginTop: 14 }}
               onClick={run}
               disabled={loading}
+              style={{ padding: "10px 16px", fontSize: 14 }}
             >
-              {loading ? <><Spinner /> Simulating ODE Dynamics...</> : <><Play size={14} /> Run What-If Simulation</>}
+              {loading ? <><Spinner /> Simulating ODE Dynamics...</> : <><Play size={14} /> Run Simulation</>}
             </button>
 
             {error && (
-              <div className="error-box" style={{ marginTop: 12 }}>
-                <AlertTriangle size={15} />
-                <span>{error}</span>
+              <div className="error-box" style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <AlertTriangle size={15} />
+                  <span>{error}</span>
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 11.5, padding: "3px 8px" }}
+                  onClick={run}
+                  disabled={loading}
+                >
+                  Retry
+                </button>
               </div>
             )}
           </div>
@@ -2949,40 +3269,47 @@ function WhatIfPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
           {result ? (
             <>
+              {isStale && (
+                <div style={{ padding: "9px 14px", background: "var(--amber-50, #FFFBEB)", border: "1px solid var(--amber-400, #FBBF24)", borderRadius: "var(--radius-sm)", fontSize: 12.5, color: "var(--amber-900, #78350F)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    <AlertTriangle size={15} style={{ color: "var(--amber-600, #D97706)" }} />
+                    Scenario parameters modified. The chart below shows the previous simulation.
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: 11.5, padding: "3px 9px" }}
+                    onClick={run}
+                    disabled={loading}
+                  >
+                    Update Results
+                  </button>
+                </div>
+              )}
+
               {/* Simulation Status Header Card */}
               <div className="card">
-                <div className="card-header">
+                <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                   <h3>
                     <Activity size={15} />
                     {result.scenario_name} — Glucose Response
                   </h3>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    {previousResult && (
-                      <button
-                        type="button"
-                        className={`btn ${showComparison ? "btn-primary" : "btn-secondary"}`}
-                        style={{ padding: "4px 9px", fontSize: 12 }}
-                        onClick={() => setShowComparison(!showComparison)}
-                      >
-                        <ArrowLeftRight size={13} />
-                        {showComparison ? "Hide Comparison" : "Compare with Previous"}
-                      </button>
-                    )}
-                    <Badge label="ODE Simulation" type="teal" icon={ShieldCheck} />
+                    <Badge label={result.model_mode === "hybrid" ? "Hybrid Neural-ODE" : "Bergman Minimal ODE"} type="teal" icon={ShieldCheck} />
                   </div>
                 </div>
                 <div className="card-body">
                   <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 12 }}>
-                    Patient: <strong>{selectedPatientName}</strong> · Duration: <strong>{result.duration_hours}h</strong> · Model: <strong>Bergman Minimal ODE</strong>
+                    Patient: <strong>{selectedPatientName}</strong> · Modeled Horizon: <strong>{result.duration_hours}h</strong> · Model: <strong>Bergman Minimal ODE</strong>
                   </div>
 
                   {/* Glucose Trajectory Chart */}
-                  <div className="chart-container" style={{ height: 260 }}>
+                  <div className="chart-container" style={{ height: 270 }}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={comparisonChartData} margin={{ top: 6, right: 12, left: -14, bottom: 0 }}>
+                      <AreaChart data={comparisonChartData} margin={{ top: 10, right: 14, left: -10, bottom: 4 }}>
                         <defs>
                           <linearGradient id="whatifSimGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={CHART_COLORS.odeSimulation} stopOpacity={0.22} />
+                            <stop offset="5%" stopColor={CHART_COLORS.odeSimulation} stopOpacity={0.25} />
                             <stop offset="95%" stopColor={CHART_COLORS.odeSimulation} stopOpacity={0.0} />
                           </linearGradient>
                         </defs>
@@ -2992,23 +3319,25 @@ function WhatIfPage() {
                           stroke="#94A3B8"
                           tick={{ fontSize: 11, fill: "#64748B" }}
                           tickFormatter={tLabel}
+                          label={{ value: "Time (hours)", position: "insideBottom", offset: -3, fill: "#64748B", fontSize: 11 }}
                         />
                         <YAxis
                           domain={[40, 320]}
                           stroke="#94A3B8"
                           tick={{ fontSize: 11, fill: "#64748B" }}
                           tickCount={7}
+                          label={{ value: "Glucose (mg/dL)", angle: -90, position: "insideLeft", offset: 12, fill: "#64748B", fontSize: 11 }}
                         />
                         <Tooltip
                           contentStyle={{
                             background: "#FFFFFF",
                             border: "1px solid #E2E8F0",
                             borderRadius: 8,
-                            fontSize: 12.5,
+                            fontSize: 12,
                           }}
                           formatter={(v: any, name: any) => [
                             `${Number(v).toFixed(1)} mg/dL`,
-                            name === "sim_glucose_mgdL" ? "Current Scenario (ODE)" : "Previous Run (Baseline)",
+                            name === "sim_glucose_mgdL" ? `What-If (${result.scenario_name})` : "Baseline (40g Standard Meal)",
                           ]}
                           labelFormatter={(t: any) => `Time = ${tLabel(Number(t))}`}
                         />
@@ -3027,7 +3356,17 @@ function WhatIfPage() {
                           strokeWidth={1.5}
                           label={{ value: "180", fill: CHART_COLORS.highThresh, fontSize: 10, position: "insideTopLeft" }}
                         />
-                        {/* Current Scenario Trace (Teal Solid) */}
+                        {/* Baseline Trajectory (Solid Slate Line) */}
+                        <Area
+                          type="monotone"
+                          dataKey="baseline_glucose_mgdL"
+                          stroke="#475569"
+                          strokeWidth={2}
+                          fill="none"
+                          dot={false}
+                          name="baseline_glucose_mgdL"
+                        />
+                        {/* Scenario Trajectory (Solid Teal Line) */}
                         <Area
                           type="monotone"
                           dataKey="sim_glucose_mgdL"
@@ -3038,37 +3377,37 @@ function WhatIfPage() {
                           activeDot={{ r: 4 }}
                           name="sim_glucose_mgdL"
                         />
-                        {/* Optional Comparison Trace (Grey Dashed) */}
-                        {showComparison && (
-                          <Area
-                            type="monotone"
-                            dataKey="baseline_glucose_mgdL"
-                            stroke="#64748B"
-                            strokeWidth={2}
-                            strokeDasharray="4 4"
-                            fill="none"
-                            dot={false}
-                            name="baseline_glucose_mgdL"
-                          />
-                        )}
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
 
-                  <ChartLegend
-                    hasSimulation={true}
-                    hasBaseline={showComparison}
-                    showZones={true}
-                  />
+                  {/* Clear Legend */}
+                  <div className="chart-legend">
+                    <div className="legend-item">
+                      <div className="legend-line-solid" style={{ background: "#475569" }} />
+                      <span>━━ Baseline (Standard 40g Meal)</span>
+                    </div>
+                    <div className="legend-item">
+                      <div className="legend-line-solid" style={{ background: CHART_COLORS.odeSimulation }} />
+                      <span>━━ What-If Scenario ({result.scenario_name})</span>
+                    </div>
+                    <div className="legend-item">
+                      <div className="legend-band-box" />
+                      <span>Target Band (70–180 mg/dL)</span>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "center", marginTop: 6, fontSize: 11.5, color: "var(--text-secondary)" }}>
+                    Baseline = original scenario (40g meal at 1.0h) · What-if = scenario with your selected changes
+                  </div>
 
                   {/* Event Timeline Markers */}
-                  <div className="event-timeline-grid">
+                  <div className="event-timeline-grid" style={{ marginTop: 14 }}>
                     <div className="event-timeline-card">
                       <div className="event-timeline-header">
                         <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
                           <Utensils size={13} style={{ color: "var(--emerald-600)" }} /> Meal Intake
                         </span>
-                        <Badge label="ODE Input" type="target" />
+                        <Badge label="ODE Modeled" type="target" />
                       </div>
                       <div className="event-timeline-val">{result.meal_cho_g}g Carbohydrates</div>
                       <div className="event-timeline-note">Ingested at t = {result.meal_time_h}h</div>
@@ -3079,7 +3418,7 @@ function WhatIfPage() {
                         <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
                           <Moon size={13} style={{ color: "var(--purple-600)" }} /> Sleep Scenario
                         </span>
-                        <Badge label="Metadata" type="neutral" />
+                        <Badge label="Context Metadata" type="neutral" />
                       </div>
                       <div className="event-timeline-val">{result.sleep_scenario?.duration_hours ?? 8}h · {result.sleep_scenario?.quality ?? "Average"}</div>
                       <div className="event-timeline-note">Recorded context</div>
@@ -3090,7 +3429,7 @@ function WhatIfPage() {
                         <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
                           <Activity size={13} style={{ color: "var(--teal-600)" }} /> Exercise
                         </span>
-                        <Badge label="Metadata" type="neutral" />
+                        <Badge label="Context Metadata" type="neutral" />
                       </div>
                       <div className="event-timeline-val">
                         {result.exercise_scenario?.type !== "None"
@@ -3105,88 +3444,112 @@ function WhatIfPage() {
                 </div>
               </div>
 
-              {/* Key Computed Metrics Cards */}
+              {/* Scenario Comparison Summary Table */}
               <div className="card">
                 <div className="card-header">
-                  <h3><BarChart3 size={15} />Key Computed Simulation Metrics</h3>
+                  <h3><BarChart3 size={15} />Scenario Comparison Summary</h3>
                 </div>
                 <div className="card-body">
-                  <div className="metrics-row" style={{ marginBottom: 0 }}>
-                    {[
-                      {
-                        label: "Initial Glucose",
-                        val: `${result.metrics.initial_glucose_mgdL ?? "—"} mg/dL`,
-                        Icon: Activity,
-                        cls: "neutral",
-                      },
-                      {
-                        label: "Peak Glucose",
-                        val: `${result.metrics.peak_glucose_mgdL} mg/dL`,
-                        Icon: TrendingUp,
-                        cls: result.metrics.peak_glucose_mgdL > 180 ? "warning" : "success",
-                      },
-                      {
-                        label: "Time to Peak",
-                        val: result.metrics.time_to_peak_h != null ? `${(result.metrics.time_to_peak_h * 60).toFixed(0)} min` : "—",
-                        Icon: Clock,
-                        cls: "neutral",
-                      },
-                      {
-                        label: "Final Glucose",
-                        val: `${result.metrics.final_glucose_mgdL ?? "—"} mg/dL`,
-                        Icon: Activity,
-                        cls: "neutral",
-                      },
-                      {
-                        label: "Net Change",
-                        val: result.metrics.glucose_change_mgdL != null ? `${result.metrics.glucose_change_mgdL > 0 ? "+" : ""}${result.metrics.glucose_change_mgdL} mg/dL` : "—",
-                        Icon: TrendingUp,
-                        cls: "neutral",
-                      },
-                      {
-                        label: "Simulated TIR",
-                        val: `${result.metrics.tir_pct}%`,
-                        Icon: Target,
-                        cls: result.metrics.tir_pct >= 70 ? "success" : "warning",
-                      },
-                    ].map(t => (
-                      <div key={t.label} className="metric-card">
-                        <div className={`metric-icon-wrap ${t.cls}`}>
-                          <t.Icon size={16} />
-                        </div>
-                        <div className="metric-info">
-                          <div className="metric-label">{t.label}</div>
-                          <div className="metric-value" style={{ fontSize: 18 }}>{t.val}</div>
-                        </div>
-                      </div>
-                    ))}
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="baseline-table" style={{ width: "100%" }}>
+                      <thead>
+                        <tr style={{ background: "var(--bg-secondary)", fontSize: 11.5, textAlign: "left" }}>
+                          <th style={{ padding: "7px 12px" }}>Metric</th>
+                          <th style={{ padding: "7px 12px" }}>Baseline (40g Meal)</th>
+                          <th style={{ padding: "7px 12px" }}>What-If ({result.scenario_name})</th>
+                          <th style={{ padding: "7px 12px" }}>Difference</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td style={{ fontWeight: 600 }}>Peak Glucose</td>
+                          <td>{result.baseline_metrics?.peak_glucose_mgdL ?? "—"} mg/dL</td>
+                          <td style={{ fontWeight: 600, color: result.metrics.peak_glucose_mgdL > 180 ? "var(--status-warning-text)" : "var(--emerald-800)" }}>
+                            {result.metrics.peak_glucose_mgdL} mg/dL
+                          </td>
+                          <td style={{ fontWeight: 600, color: (result.baseline_metrics?.diff_peak_mgdL ?? 0) > 0 ? "var(--status-warning-text)" : "var(--emerald-700)" }}>
+                            {(result.baseline_metrics?.diff_peak_mgdL ?? 0) > 0 ? "+" : ""}
+                            {result.baseline_metrics?.diff_peak_mgdL ?? "—"} mg/dL
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: 600 }}>Final Glucose</td>
+                          <td>{result.baseline_metrics?.final_glucose_mgdL ?? "—"} mg/dL</td>
+                          <td>{result.metrics.final_glucose_mgdL ?? "—"} mg/dL</td>
+                          <td>
+                            {(result.baseline_metrics?.diff_final_mgdL ?? 0) > 0 ? "+" : ""}
+                            {result.baseline_metrics?.diff_final_mgdL ?? "—"} mg/dL
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: 600 }}>Time to Peak</td>
+                          <td>—</td>
+                          <td>{result.metrics.time_to_peak_h != null ? `${(result.metrics.time_to_peak_h * 60).toFixed(0)} min` : "—"}</td>
+                          <td style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>At t = {result.metrics.time_to_peak_h}h</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: 600 }}>Simulated TIR</td>
+                          <td>—</td>
+                          <td style={{ fontWeight: 600 }}>{result.metrics.tir_pct}%</td>
+                          <td style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>Target range 70–180 mg/dL</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Neutral interpretation text */}
+                  <div style={{ marginTop: 14, padding: "11px 14px", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", fontSize: 12.5, color: "var(--text-main)", lineHeight: 1.55 }}>
+                    {result.interpretation}
                   </div>
                 </div>
               </div>
 
-              {/* What This Simulation Shows Interpretation */}
+              {/* Assumptions & Model Limitations */}
               <div className="card">
-                <div className="card-header">
-                  <h3><Info size={15} />What This Simulation Shows</h3>
+                <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <h3><Info size={15} />Assumptions &amp; Model Equations</h3>
+                  <button
+                    type="button"
+                    className="btn-link-subtle"
+                    onClick={() => setShowEquations(!showEquations)}
+                    style={{ fontSize: 12 }}
+                  >
+                    {showEquations ? "Hide Equations" : "View Model Equations"}
+                  </button>
                 </div>
                 <div className="card-body">
-                  <p style={{ fontSize: 13.5, color: "var(--text-main)", lineHeight: 1.6 }}>
-                    {result.interpretation}
+                  <p style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+                    This scenario is modeled via numerical integration of the 3-compartment Bergman Minimal Model. Carbohydrate digestion uses a triangular gastrointestinal absorption curve (80% bioavailability). Sleep and physical activity are saved as observational scenario metadata.
                   </p>
-                  <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-secondary)" }}>
-                    * In silico mechanistic simulation via Bergman Minimal Model ODE. Sleep and exercise factors are logged as experimental metadata.
+                  {showEquations && (
+                    <div style={{ marginTop: 12, padding: 12, background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", fontSize: 12, fontFamily: "var(--font-mono)", color: "var(--text-body)", lineHeight: 1.6 }}>
+                      <div>dG/dt = -p1*(G - Gb) - X*G + Ra(t)/Vg</div>
+                      <div>dX/dt = -p2*X + p3*(I - Ib)</div>
+                      <div>dI/dt = -n*(I - Ib) + u(t)/Vi</div>
+                    </div>
+                  )}
+                  <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)" }}>
+                    * In silico research simulation only. Not intended for insulin dosing or clinical treatment decisions.
                   </div>
                 </div>
               </div>
             </>
           ) : (
-            <div className="card" style={{ minHeight: 300 }}>
-              <div className="empty-state">
-                <FlaskConical size={38} style={{ color: "var(--emerald-600)" }} />
-                <h4 style={{ fontWeight: 600, color: "var(--text-main)", marginTop: 6 }}>Ready for Scenario Simulation</h4>
-                <p style={{ maxWidth: 420 }}>
-                  Configure virtual patient parameters, meal carbohydrate load, sleep, and activity scenarios on the left and click "Run What-If Simulation".
-                </p>
+            <div className="card" style={{ alignSelf: "start" }}>
+              <div className="card-header">
+                <h3><Activity size={15} />Simulation Results</h3>
+                <Badge label="Awaiting Simulation" type="neutral" />
+              </div>
+              <div className="card-body">
+                <div className="empty-state" style={{ padding: "32px 16px" }}>
+                  <FlaskConical size={34} style={{ color: "var(--emerald-600)" }} />
+                  <h4 style={{ fontWeight: 600, color: "var(--text-main)", marginTop: 6, fontSize: 14 }}>
+                    Ready for Scenario Simulation
+                  </h4>
+                  <p style={{ maxWidth: 360, fontSize: 13, color: "var(--text-secondary)" }}>
+                    Configure the virtual patient, meal carbohydrate load, and scenario presets on the left, then click <strong>Run Simulation</strong> to compute the projected glucose response.
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -3337,14 +3700,15 @@ function ModelComparisonPage() {
                 <table className="benchmark-table">
                   <thead>
                     <tr>
-                      <th>Model Details</th>
+                      <th>Model</th>
                       <th>Category</th>
-                      <th>Execution Status</th>
+                      <th>Status</th>
                       <th>Horizon</th>
                       <th>RMSE (mg/dL)</th>
                       <th>MAE (mg/dL)</th>
                       <th>MARD (%)</th>
                       <th>Clarke Zone A+B (%)</th>
+                      <th style={{ textAlign: "right" }}>Details</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3365,25 +3729,9 @@ function ModelComparisonPage() {
                             <React.Fragment key={rowKey}>
                               <tr>
                                 <td>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleModelExpand(rowKey)}
-                                    style={{
-                                      background: "none",
-                                      border: "none",
-                                      color: "var(--emerald-700)",
-                                      fontSize: "12px",
-                                      fontWeight: 600,
-                                      cursor: "pointer",
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: "4px",
-                                      padding: "2px 6px",
-                                      borderRadius: "var(--radius-xs)",
-                                    }}
-                                  >
-                                    {isExpanded ? "Show Less" : "Show More"}
-                                  </button>
+                                  <strong style={{ fontSize: "13px", color: "var(--text-main)" }}>
+                                    {model.model_name || model.name || "Model"}
+                                  </strong>
                                 </td>
                                 <td>
                                   <Badge label={model.category || "Research"} type="neutral" />
@@ -3408,14 +3756,24 @@ function ModelComparisonPage() {
                                     ? `${m.clarke_zone_a_plus_b_pct.toFixed(1)}%`
                                     : (m.clarke_ab ? `${m.clarke_ab}%` : "—")}
                                 </td>
+                                <td style={{ textAlign: "right" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleModelExpand(rowKey)}
+                                    className="btn-link-subtle"
+                                    style={{ marginLeft: "auto" }}
+                                  >
+                                    {isExpanded ? "Show Less" : "Show More"}
+                                  </button>
+                                </td>
                               </tr>
                               {isExpanded && (
                                 <tr className="benchmark-details-row">
-                                  <td colSpan={8} style={{ background: "var(--bg-secondary)", padding: "12px 18px", borderBottom: "1px solid var(--border-color)" }}>
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                                  <td colSpan={9} style={{ background: "var(--bg-secondary)", padding: "14px 20px", borderBottom: "1px solid var(--border-color)" }}>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                                         <strong style={{ fontSize: "13.5px", color: "var(--text-main)" }}>
-                                          {model.model_name || model.name || "Model"}
+                                          {model.model_name || model.name || "Model"} Architecture &amp; Methodology
                                         </strong>
                                         <Badge label={model.category || "Research"} type="neutral" />
                                         <span className={`model-tag ${(model.execution_status || "").includes("Live") ? "live" : "offline"}`}>
@@ -3423,7 +3781,7 @@ function ModelComparisonPage() {
                                         </span>
                                       </div>
                                       {model.description && (
-                                        <div style={{ fontSize: "12.5px", color: "var(--text-body)", lineHeight: 1.5 }}>
+                                        <div style={{ fontSize: "12.5px", color: "var(--text-body)", lineHeight: 1.55 }}>
                                           {model.description}
                                         </div>
                                       )}
@@ -3445,25 +3803,9 @@ function ModelComparisonPage() {
                             <React.Fragment key={idx}>
                               <tr>
                                 <td>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleModelExpand(rowKey)}
-                                    style={{
-                                      background: "none",
-                                      border: "none",
-                                      color: "var(--emerald-700)",
-                                      fontSize: "12px",
-                                      fontWeight: 600,
-                                      cursor: "pointer",
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: "4px",
-                                      padding: "2px 6px",
-                                      borderRadius: "var(--radius-xs)",
-                                    }}
-                                  >
-                                    {isExpanded ? "Show Less" : "Show More"}
-                                  </button>
+                                  <strong style={{ fontSize: "13px", color: "var(--text-main)" }}>
+                                    {r.Model || r.model_name || "Model"}
+                                  </strong>
                                 </td>
                                 <td><Badge label="Research" type="neutral" /></td>
                                 <td><span className="model-tag offline">Benchmark</span></td>
@@ -3472,12 +3814,22 @@ function ModelComparisonPage() {
                                 <td>{r.MAE_mgdL ?? r.mae}</td>
                                 <td>—</td>
                                 <td>{r.Clarke_AB_pct ? `${r.Clarke_AB_pct}%` : "—"}</td>
+                                <td style={{ textAlign: "right" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleModelExpand(rowKey)}
+                                    className="btn-link-subtle"
+                                    style={{ marginLeft: "auto" }}
+                                  >
+                                    {isExpanded ? "Show Less" : "Show More"}
+                                  </button>
+                                </td>
                               </tr>
                               {isExpanded && (
                                 <tr className="benchmark-details-row">
-                                  <td colSpan={8} style={{ background: "var(--bg-secondary)", padding: "12px 18px", borderBottom: "1px solid var(--border-color)" }}>
+                                  <td colSpan={9} style={{ background: "var(--bg-secondary)", padding: "14px 20px", borderBottom: "1px solid var(--border-color)" }}>
                                     <strong style={{ fontSize: "13.5px", color: "var(--text-main)" }}>{r.Model || r.model_name}</strong>
-                                    <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: 3 }}>
+                                    <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: 4 }}>
                                       Evaluation Horizon: {r.Horizon} · RMSE: {r.RMSE_mgdL ?? r.rmse} mg/dL · MAE: {r.MAE_mgdL ?? r.mae} mg/dL
                                     </div>
                                   </td>
@@ -4080,6 +4432,16 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && mobileOpen) {
+        setMobileOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobileOpen]);
+
   const renderPage = () => {
     switch (page) {
       case "overview":
@@ -4159,6 +4521,15 @@ export default function App() {
         mobileOpen={mobileOpen}
         setMobileOpen={setMobileOpen}
       />
+
+      {/* Mobile Backdrop Overlay */}
+      {mobileOpen && (
+        <div
+          className="mobile-backdrop"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
 
       {/* Compact Top Header */}
       <CompactHeader

@@ -1452,6 +1452,14 @@ body.large-text-mode {
   gap: 4px;
   border-bottom: 1px solid var(--border-color);
   margin-bottom: 20px;
+  overflow-x: auto;
+  max-width: 100%;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
@@ -1465,6 +1473,8 @@ body.large-text-mode {
   cursor: pointer;
   transition: all 0.15s ease;
   font-family: var(--font-family);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tab:hover {
@@ -1513,6 +1523,25 @@ body.large-text-mode {
 .grid-2 > * {
   min-width: 0;
 }
+
+.whatif-grid {
+  display: grid;
+  grid-template-columns: minmax(340px, 420px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.whatif-grid > * {
+  min-width: 0;
+}
+
+@media (max-width: 960px) {
+  .whatif-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
 
 .grid-3 {
   display: grid;
@@ -1564,6 +1593,24 @@ body.large-text-mode {
   }
 }
 
+.mobile-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 140;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.header-local-badge {
+  display: inline-flex;
+}
+
 @media (max-width: 768px) {
   .sidebar {
     transform: translateX(-100%);
@@ -1574,13 +1621,22 @@ body.large-text-mode {
   }
   .compact-header {
     left: 0 !important;
-    padding: 0 16px;
+    padding: 0 14px;
+  }
+  .header-left {
+    min-width: 0;
+  }
+  .header-breadcrumb span {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .main-area {
     margin-left: 0 !important;
   }
   .page-content {
-    padding: 16px;
+    padding: 14px;
   }
   .grid-2, .grid-3 {
     grid-template-columns: 1fr;
@@ -1588,6 +1644,39 @@ body.large-text-mode {
   .current-glucose-card {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .header-local-badge {
+    display: none !important;
+  }
+  .compact-header {
+    padding: 0 12px;
+  }
+  .header-right {
+    gap: 6px;
+  }
+  .header-breadcrumb span {
+    max-width: 110px;
+  }
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .page-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .page-header-actions > * {
+    max-width: 100%;
+  }
+  .patient-selector-bar {
+    padding: 12px 14px;
+    gap: 12px;
   }
 }
 

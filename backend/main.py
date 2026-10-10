@@ -564,6 +564,18 @@ def get_overview(
 def list_patients():
     processed_dir = REPO_ROOT / "data" / "processed"
     files = sorted(glob.glob(str(processed_dir / "patient_*.parquet")))
+    
+    # Load all customized profiles from SQLite
+    conn = _get_db()
+    sqlite_patients: dict[str, dict] = {}
+    try:
+        rows = conn.execute("SELECT * FROM patients ORDER BY created_at DESC").fetchall()
+        for row in rows:
+            d = _row_to_patient_dict(row)
+            sqlite_patients[d["id"]] = d
+    finally:
+        conn.close()
+
     patients = []
     # 1. Synthetic benchmark patients from parquet files
     for f in files:
@@ -571,28 +583,34 @@ def list_patients():
         df = pd.read_parquet(f)
         g = df["glucose_mgdL"].values
         label_meta = SYNTHETIC_LABELS.get(pid, {})
+        custom_p = sqlite_patients.get(pid)
+        
+        display_name = custom_p.get("display_name") if custom_p else label_meta.get("display_name", f"Synthetic Patient {pid.split('_')[-1]}")
+        category = custom_p.get("category") if custom_p else label_meta.get("category", "Synthetic Cohort")
+        notes = custom_p.get("notes") if custom_p else label_meta.get("notes", "")
+
         patients.append({
             "id": pid,
-            "display_name": label_meta.get("display_name", f"Synthetic Patient {pid.split('_')[-1]}"),
-            "label": label_meta.get("display_name", f"Synthetic Patient {pid.split('_')[-1]}"),
-            "category": label_meta.get("category", "Synthetic Cohort"),
-            "notes": label_meta.get("notes", ""),
+            "display_name": display_name,
+            "label": display_name,
+            "category": category,
+            "notes": notes,
             "data_origin": "synthetic",
             "source": "benchmark",
             "is_synthetic": True,
             "mean_glucose_mgdL": round(float(np.mean(g)), 1),
             "tir_pct": round(float(np.mean((g >= 70) & (g <= 180)) * 100), 1),
             "n_readings": len(df),
-            "age": None, "weight_kg": None, "height_cm": None, "bmi": None,
+            "age": custom_p.get("age") if custom_p else None,
+            "weight_kg": custom_p.get("weight_kg") if custom_p else None,
+            "height_cm": custom_p.get("height_cm") if custom_p else None,
+            "bmi": custom_p.get("bmi") if custom_p else None,
+            "sex": custom_p.get("sex") if custom_p else None,
         })
-    # 2. User-created profiles from SQLite
-    conn = _get_db()
-    try:
-        rows = conn.execute(
-            "SELECT * FROM patients WHERE is_synthetic = 0 ORDER BY created_at DESC"
-        ).fetchall()
-        for row in rows:
-            d = _row_to_patient_dict(row)
+    
+    # 2. User-created profiles from SQLite (non-synthetic)
+    for pid, d in sqlite_patients.items():
+        if not d.get("is_synthetic"):
             patients.append({
                 "id": d["id"],
                 "display_name": d["display_name"],
@@ -613,8 +631,7 @@ def list_patients():
                 "n_readings": 0,
                 "created_at": d.get("created_at"),
             })
-    finally:
-        conn.close()
+
     return {
         "patients": patients,
         "count": len(patients),
@@ -629,6 +646,16 @@ def list_patients():
 @app.get("/api/patients/{patient_id}/profile")
 def get_patient_profile(patient_id: str):
     """Get full profile for a patient (synthetic benchmark or user-created)."""
+    conn = _get_db()
+    try:
+        row = conn.execute("SELECT * FROM patients WHERE id = ?", (patient_id,)).fetchone()
+        if row is not None:
+            d = _row_to_patient_dict(row)
+            d["disclaimer"] = DISCLAIMER
+            return d
+    finally:
+        conn.close()
+
     processed_dir = REPO_ROOT / "data" / "processed"
     fpath = processed_dir / f"patient_{patient_id}.parquet"
     if fpath.exists():
@@ -646,16 +673,8 @@ def get_patient_profile(patient_id: str):
             "baseline_glucose_mgdL": float(params.get("Gb", 100.0)) if params else None,
             "disclaimer": DISCLAIMER,
         }
-    conn = _get_db()
-    try:
-        row = conn.execute("SELECT * FROM patients WHERE id = ?", (patient_id,)).fetchone()
-        if row is None:
-            raise HTTPException(404, f"Patient {patient_id} not found")
-        d = _row_to_patient_dict(row)
-        d["disclaimer"] = DISCLAIMER
-        return d
-    finally:
-        conn.close()
+
+    raise HTTPException(404, f"Patient {patient_id} not found")
 
 
 @app.post("/api/patients", status_code=201)
@@ -694,14 +713,45 @@ def create_patient(req: CreatePatientRequest):
 
 @app.put("/api/patients/{patient_id}")
 def update_patient(patient_id: str, req: UpdatePatientRequest):
-    """Update a user-created patient profile."""
+    """Update a patient profile (supports both custom and synthetic profiles)."""
     conn = _get_db()
     try:
         row = conn.execute("SELECT * FROM patients WHERE id = ?", (patient_id,)).fetchone()
         if row is None:
+            # Check if synthetic benchmark patient exists in parquet
+            processed_dir = REPO_ROOT / "data" / "processed"
+            fpath = processed_dir / f"patient_{patient_id}.parquet"
+            if fpath.exists():
+                label_meta = SYNTHETIC_LABELS.get(patient_id, {})
+                params = PATIENT_CALIBRATED_PARAMS.get(patient_id, {})
+                now = pd.Timestamp.now().isoformat()
+                disp = req.display_name.strip() if req.display_name is not None else label_meta.get("display_name", f"Synthetic Patient {patient_id}")
+                cat = req.category.strip() if req.category is not None else label_meta.get("category", "Synthetic Cohort")
+                nts = req.notes.strip() if req.notes is not None else label_meta.get("notes", "")
+                bg = req.baseline_glucose_mgdL if req.baseline_glucose_mgdL is not None else float(params.get("Gb", 100.0))
+                
+                conn.execute(
+                    """
+                    INSERT INTO patients
+                      (id, display_name, age, weight_kg, height_cm, sex, category,
+                       notes, baseline_glucose_mgdL, is_synthetic, source, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'benchmark', ?, ?)
+                    """,
+                    (
+                        patient_id, disp, req.age,
+                        req.weight_kg, req.height_cm,
+                        req.sex.strip() if req.sex else None,
+                        cat, nts, bg,
+                        now, now,
+                    ),
+                )
+                conn.commit()
+                row = conn.execute("SELECT * FROM patients WHERE id = ?", (patient_id,)).fetchone()
+                d = _row_to_patient_dict(row)
+                d["disclaimer"] = DISCLAIMER
+                return d
             raise HTTPException(404, f"Patient {patient_id} not found.")
-        if row["is_synthetic"]:
-            raise HTTPException(403, "Cannot modify synthetic benchmark patient profiles.")
+
         updates: dict = {}
         if req.display_name is not None:
             updates["display_name"] = req.display_name.strip()
@@ -895,11 +945,13 @@ def run_whatif(req: WhatIfRequest):
         meal_time_min = req.meal_time_h * 60.0
         absorption_peak_min = 30.0
 
+        ag_bioavail = 0.8
+
         def ra_fn(t: float) -> float:
             if meal_time_min <= t <= meal_time_min + 2 * absorption_peak_min:
                 frac = (t - meal_time_min) / absorption_peak_min
                 shape = frac if frac <= 1.0 else 2.0 - frac
-                return max(0.0, shape * req.meal_cho_g * 10.0 / absorption_peak_min)
+                return max(0.0, shape * (req.meal_cho_g * 1000.0 * ag_bioavail) / absorption_peak_min)
             return 0.0
 
         def u_fn(t: float) -> float:
@@ -910,6 +962,20 @@ def run_whatif(req: WhatIfRequest):
 
         params = dict(PATIENT_CALIBRATED_PARAMS.get(req.patient_id, DEFAULT_BERGMAN_PARAMS) if req.patient_id else DEFAULT_BERGMAN_PARAMS)
         G, _, _ = simulate_bergman(t_eval, params, u_fn, ra_fn, [float(params.get("Gb", 100.0)), 0.0, float(params.get("Ib", 10.0))])
+
+        # Baseline reference simulation (Standard 40g meal at 1.0h, 15 mU/min basal)
+        def ra_baseline(t: float) -> float:
+            base_meal_time = 60.0
+            if base_meal_time <= t <= base_meal_time + 2 * absorption_peak_min:
+                frac = (t - base_meal_time) / absorption_peak_min
+                shape = frac if frac <= 1.0 else 2.0 - frac
+                return max(0.0, shape * (40.0 * 1000.0 * ag_bioavail) / absorption_peak_min)
+            return 0.0
+
+        def u_baseline(t: float) -> float:
+            return 15.0
+
+        G_base, _, _ = simulate_bergman(t_eval, params, u_baseline, ra_baseline, [float(params.get("Gb", 100.0)), 0.0, float(params.get("Ib", 10.0))])
         
         # Check if hybrid mode is requested and available
         hybrid_applied = False
@@ -941,6 +1007,7 @@ def run_whatif(req: WhatIfRequest):
             {
                 "t_min": round(float(t), 1),
                 "glucose_mgdL": round(float(gv), 1),
+                "baseline_glucose_mgdL": round(float(G_base[i]), 1),
                 "mech_glucose_mgdL": round(float(G[i]), 1),
             }
             for i, (t, gv) in enumerate(zip(t_eval, G_output))
@@ -958,6 +1025,11 @@ def run_whatif(req: WhatIfRequest):
         tar = float(np.mean(G_output > 180) * 100)
         delta_g = round(final_g - init_g, 1)
 
+        peak_base = float(np.max(G_base))
+        final_base = float(G_base[-1])
+        diff_peak = round(peak_g - peak_base, 1)
+        diff_final = round(final_g - final_base, 1)
+
         model_label = (
             "Hybrid Neural-ODE (Bergman Minimal Model + Residual GRU Correction)"
             if (req.model_mode == "hybrid" and hybrid_applied)
@@ -967,6 +1039,13 @@ def run_whatif(req: WhatIfRequest):
         interpret_parts = [
             f"Simulated trajectory began at {init_g:.1f} mg/dL and reached a peak glucose of {peak_g:.1f} mg/dL at {time_to_peak_h * 60:.0f} minutes using {model_label}."
         ]
+        if diff_peak > 3.0:
+            interpret_parts.append(f"The simulated trajectory is higher than the baseline scenario over this period (peak difference: +{diff_peak:.1f} mg/dL).")
+        elif diff_peak < -3.0:
+            interpret_parts.append(f"The simulated trajectory is lower than the baseline scenario over this period (peak difference: {diff_peak:.1f} mg/dL).")
+        else:
+            interpret_parts.append("The simulated trajectory shows a comparable glucose excursion to the baseline reference scenario.")
+
         if peak_g > 180:
             interpret_parts.append(f"Postprandial excursion crossed the 180 mg/dL target threshold (TAR: {tar:.1f}%).")
         else:
@@ -996,6 +1075,13 @@ def run_whatif(req: WhatIfRequest):
                 "final_glucose_mgdL": round(final_g, 1),
                 "time_to_peak_h": round(time_to_peak_h, 2),
                 "glucose_change_mgdL": delta_g,
+            },
+            "baseline_metrics": {
+                "peak_glucose_mgdL": round(peak_base, 1),
+                "final_glucose_mgdL": round(final_base, 1),
+                "initial_glucose_mgdL": round(float(G_base[0]), 1),
+                "diff_peak_mgdL": diff_peak,
+                "diff_final_mgdL": diff_final,
             },
             "trace": trace,
             "meal_time_h": req.meal_time_h,

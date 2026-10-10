@@ -231,6 +231,19 @@ class TestWhatIf:
         assert "initial_glucose_mgdL" in d["metrics"]
         assert "final_glucose_mgdL" in d["metrics"]
 
+    def test_whatif_baseline_simulation(self, client, first_pid):
+        payload = dict(self.BASE, patient_id=first_pid, meal_cho_g=75.0)
+        resp = client.post("/api/whatif", json=payload)
+        assert resp.status_code == 200
+        d = resp.json()
+        assert "baseline_metrics" in d
+        assert "peak_glucose_mgdL" in d["baseline_metrics"]
+        assert "diff_peak_mgdL" in d["baseline_metrics"]
+        assert "trace" in d
+        assert len(d["trace"]) > 0
+        assert "baseline_glucose_mgdL" in d["trace"][0]
+        assert d["trace"][0]["baseline_glucose_mgdL"] > 0
+
 
 class TestAssistant:
     def test_assistant_query_basic(self, client, first_pid):
@@ -428,4 +441,35 @@ class TestModelComparison:
             assert "RMSE_mgdL" in rec or "rmse_mgdL" in rec
         assert "key_takeaways" in d
         assert len(d["key_takeaways"]) > 0
+
+
+class TestPatientProfile:
+    def test_get_profile(self, client, first_pid):
+        resp = client.get(f"/api/patients/{first_pid}/profile")
+        assert resp.status_code == 200
+        d = resp.json()
+        assert d["id"] == first_pid
+        assert "display_name" in d
+
+    def test_update_profile_and_bmi(self, client, first_pid):
+        update_data = {
+            "age": 34,
+            "weight_kg": 72.0,
+            "height_cm": 178.0,
+            "notes": "Updated research profile",
+        }
+        resp = client.put(f"/api/patients/{first_pid}", json=update_data)
+        assert resp.status_code == 200
+        d = resp.json()
+        assert d["age"] == 34
+        assert d["weight_kg"] == 72.0
+        assert d["height_cm"] == 178.0
+        # BMI = 72 / (1.78^2) = 22.7
+        assert d["bmi"] == 22.7
+
+        # Verify get returns updated profile
+        get_resp = client.get(f"/api/patients/{first_pid}/profile")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["bmi"] == 22.7
+
 
