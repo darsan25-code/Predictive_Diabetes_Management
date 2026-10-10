@@ -10,7 +10,7 @@ import {
   CheckCircle2, Info, Menu, X, Sliders, Utensils, TrendingUp, TrendingDown,
   ArrowRight, Play, Pause, RotateCcw, Plus, Trash2, ChevronRight, Send,
   Bot, Zap, Scale, Ruler, Clock, BarChart3, Target, Eye, Moon,
-  ChevronLeft,
+  ChevronLeft, Sparkles,
 } from "lucide-react";
 
 // ── Shared Configurable API Base URL ──────────────────────────────────────────
@@ -579,7 +579,6 @@ function CompactHeader({
         ) : (
           <Badge label="Connecting..." type="neutral" icon={RefreshCw} />
         )}
-        <Badge label="Local Execution Only" type="neutral" icon={ShieldCheck} className="header-local-badge" />
         <div className="header-avatar" title="Research User Profile">
           <User size={16} />
         </div>
@@ -3583,6 +3582,7 @@ function ModelComparisonPage() {
   const [error, setError] = useState("");
   const [selectedHorizon, setSelectedHorizon] = useState<number | "all">("all");
   const [expandedModels, setExpandedModels] = useState<Record<string, boolean>>({});
+  const [showAllRows, setShowAllRows] = useState(false);
 
   const toggleModelExpand = (key: string) => {
     setExpandedModels(prev => ({ ...prev, [key]: !prev[key] }));
@@ -3609,6 +3609,41 @@ function ModelComparisonPage() {
   const models = Array.isArray(data?.models) ? data.models : [];
   const records = Array.isArray(data?.records) ? data.records : [];
   const findings = Array.isArray(data?.summary_findings) ? data.summary_findings : (Array.isArray(data?.key_takeaways) ? data.key_takeaways : []);
+
+  const benchmarkRows = useMemo(() => {
+    if (models.length > 0) {
+      return models.flatMap((model: any) => {
+        const modelHorizons = selectedHorizon === "all" ? horizons : [selectedHorizon as number];
+        return modelHorizons.map(h => {
+          const m = model?.horizons?.[String(h)] || model?.horizons?.[`${h}min`];
+          if (!m) return null;
+          const isBestRMSE = (h === 30 && model.model_key === "hybrid_neural_ode") ||
+                             (h === 60 && model.model_key === "hybrid_neural_ode") ||
+                             (h === 120 && model.model_key === "mechanistic_ode") ||
+                             (h === 240 && model.model_key === "mechanistic_ode");
+          const rowKey = `${model.model_key || model.model_name}-${h}`;
+          return {
+            type: "model" as const,
+            rowKey,
+            model,
+            h,
+            m,
+            isBestRMSE,
+          };
+        }).filter(Boolean);
+      });
+    }
+    return records
+      .filter((r: any) => selectedHorizon === "all" || String(r.Horizon).includes(String(selectedHorizon)))
+      .map((r: any, idx: number) => ({
+        type: "record" as const,
+        rowKey: `record-${idx}`,
+        r,
+        idx,
+      }));
+  }, [models, records, selectedHorizon, horizons]);
+
+  const displayedRows = showAllRows ? benchmarkRows : benchmarkRows.slice(0, 5);
 
   return (
     <div>
@@ -3719,136 +3754,141 @@ function ModelComparisonPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {models.length > 0 ? (
-                      models.flatMap((model: any) => {
-                        const modelHorizons = selectedHorizon === "all" ? horizons : [selectedHorizon as number];
-                        return modelHorizons.map(h => {
-                          const m = model?.horizons?.[String(h)] || model?.horizons?.[`${h}min`];
-                          if (!m) return null;
-                          const isBestRMSE = (h === 30 && model.model_key === "hybrid_neural_ode") ||
-                                             (h === 60 && model.model_key === "hybrid_neural_ode") ||
-                                             (h === 120 && model.model_key === "mechanistic_ode") ||
-                                             (h === 240 && model.model_key === "mechanistic_ode");
-                          const rowKey = `${model.model_key || model.model_name}-${h}`;
-                          const isExpanded = !!expandedModels[rowKey];
-
-                          return (
-                            <React.Fragment key={rowKey}>
-                              <tr>
-                                <td>
-                                  <strong style={{ fontSize: "13px", color: "var(--text-main)" }}>
-                                    {model.model_name || model.name || "Model"}
-                                  </strong>
-                                </td>
-                                <td>
-                                  <Badge label={model.category || "Research"} type="neutral" />
-                                </td>
-                                <td>
-                                  <span className={`model-tag ${(model.execution_status || "").includes("Live") ? "live" : "offline"}`}>
-                                    {model.execution_status || "Offline Benchmark"}
-                                  </span>
-                                </td>
-                                <td style={{ fontWeight: 600, color: "var(--emerald-800)" }}>
-                                  +{h} min
-                                </td>
-                                <td>
-                                  <span className={isBestRMSE ? "benchmark-best" : ""}>
-                                    {typeof m.rmse_mgdL === "number" ? m.rmse_mgdL.toFixed(2) : (m.rmse ?? "—")}
-                                  </span>
-                                </td>
-                                <td>{typeof m.mae_mgdL === "number" ? m.mae_mgdL.toFixed(2) : (m.mae ?? "—")}</td>
-                                <td>{typeof m.mard_pct === "number" ? `${m.mard_pct.toFixed(1)}%` : "—"}</td>
-                                <td style={{ fontWeight: 600, color: (m.clarke_zone_a_plus_b_pct ?? m.clarke_ab ?? 0) >= 85 ? "var(--emerald-700)" : "var(--text-body)" }}>
-                                  {typeof m.clarke_zone_a_plus_b_pct === "number"
-                                    ? `${m.clarke_zone_a_plus_b_pct.toFixed(1)}%`
-                                    : (m.clarke_ab ? `${m.clarke_ab}%` : "—")}
-                                </td>
-                                <td style={{ textAlign: "right" }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleModelExpand(rowKey)}
-                                    className="btn-link-subtle"
-                                    style={{ marginLeft: "auto" }}
-                                  >
-                                    {isExpanded ? "Show Less" : "Show More"}
-                                  </button>
-                                </td>
-                              </tr>
-                              {isExpanded && (
-                                <tr className="benchmark-details-row">
-                                  <td colSpan={9} style={{ background: "var(--bg-secondary)", padding: "14px 20px", borderBottom: "1px solid var(--border-color)" }}>
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                        <strong style={{ fontSize: "13.5px", color: "var(--text-main)" }}>
-                                          {model.model_name || model.name || "Model"} Architecture &amp; Methodology
-                                        </strong>
-                                        <Badge label={model.category || "Research"} type="neutral" />
-                                        <span className={`model-tag ${(model.execution_status || "").includes("Live") ? "live" : "offline"}`}>
-                                          {model.execution_status || "Offline Benchmark"}
-                                        </span>
+                    {displayedRows.map((item: any) => {
+                      if (item.type === "model") {
+                        const { model, h, m, isBestRMSE, rowKey } = item;
+                        const isExpanded = !!expandedModels[rowKey];
+                        return (
+                          <React.Fragment key={rowKey}>
+                            <tr>
+                              <td>
+                                <strong style={{ fontSize: "13px", color: "var(--text-main)" }}>
+                                  {model.model_name || model.name || "Model"}
+                                </strong>
+                              </td>
+                              <td>
+                                <Badge label={model.category || "Research"} type="neutral" />
+                              </td>
+                              <td>
+                                <span className={`model-tag ${(model.execution_status || "").includes("Live") ? "live" : "offline"}`}>
+                                  {model.execution_status || "Offline Benchmark"}
+                                </span>
+                              </td>
+                              <td style={{ fontWeight: 600, color: "var(--emerald-800)" }}>
+                                +{h} min
+                              </td>
+                              <td>
+                                <span className={isBestRMSE ? "benchmark-best" : ""}>
+                                  {typeof m.rmse_mgdL === "number" ? m.rmse_mgdL.toFixed(2) : (m.rmse ?? "—")}
+                                </span>
+                              </td>
+                              <td>{typeof m.mae_mgdL === "number" ? m.mae_mgdL.toFixed(2) : (m.mae ?? "—")}</td>
+                              <td>{typeof m.mard_pct === "number" ? `${m.mard_pct.toFixed(1)}%` : "—"}</td>
+                              <td style={{ fontWeight: 600, color: (m.clarke_zone_a_plus_b_pct ?? m.clarke_ab ?? 0) >= 85 ? "var(--emerald-700)" : "var(--text-body)" }}>
+                                {typeof m.clarke_zone_a_plus_b_pct === "number"
+                                  ? `${m.clarke_zone_a_plus_b_pct.toFixed(1)}%`
+                                  : (m.clarke_ab ? `${m.clarke_ab}%` : "—")}
+                              </td>
+                              <td style={{ textAlign: "right" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleModelExpand(rowKey)}
+                                  className="btn-link-subtle"
+                                  style={{ marginLeft: "auto" }}
+                                >
+                                  {isExpanded ? "Show Less" : "Show More"}
+                                </button>
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr className="benchmark-details-row">
+                                <td colSpan={9} style={{ background: "var(--bg-secondary)", padding: "14px 20px", borderBottom: "1px solid var(--border-color)" }}>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                      <strong style={{ fontSize: "13.5px", color: "var(--text-main)" }}>
+                                        {model.model_name || model.name || "Model"} Architecture &amp; Methodology
+                                      </strong>
+                                      <Badge label={model.category || "Research"} type="neutral" />
+                                      <span className={`model-tag ${(model.execution_status || "").includes("Live") ? "live" : "offline"}`}>
+                                        {model.execution_status || "Offline Benchmark"}
+                                      </span>
+                                    </div>
+                                    {model.description && (
+                                      <div style={{ fontSize: "12.5px", color: "var(--text-body)", lineHeight: 1.55 }}>
+                                        {model.description}
                                       </div>
-                                      {model.description && (
-                                        <div style={{ fontSize: "12.5px", color: "var(--text-body)", lineHeight: 1.55 }}>
-                                          {model.description}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </React.Fragment>
-                          );
-                        });
-                      })
-                    ) : (
-                      records
-                        .filter((r: any) => selectedHorizon === "all" || String(r.Horizon).includes(String(selectedHorizon)))
-                        .map((r: any, idx: number) => {
-                          const rowKey = `record-${idx}`;
-                          const isExpanded = !!expandedModels[rowKey];
-                          return (
-                            <React.Fragment key={idx}>
-                              <tr>
-                                <td>
-                                  <strong style={{ fontSize: "13px", color: "var(--text-main)" }}>
-                                    {r.Model || r.model_name || "Model"}
-                                  </strong>
-                                </td>
-                                <td><Badge label="Research" type="neutral" /></td>
-                                <td><span className="model-tag offline">Benchmark</span></td>
-                                <td style={{ fontWeight: 600, color: "var(--emerald-800)" }}>{r.Horizon}</td>
-                                <td><span className={r.Model?.includes("Hybrid") ? "benchmark-best" : ""}>{r.RMSE_mgdL ?? r.rmse}</span></td>
-                                <td>{r.MAE_mgdL ?? r.mae}</td>
-                                <td>—</td>
-                                <td>{r.Clarke_AB_pct ? `${r.Clarke_AB_pct}%` : "—"}</td>
-                                <td style={{ textAlign: "right" }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleModelExpand(rowKey)}
-                                    className="btn-link-subtle"
-                                    style={{ marginLeft: "auto" }}
-                                  >
-                                    {isExpanded ? "Show Less" : "Show More"}
-                                  </button>
+                                    )}
+                                  </div>
                                 </td>
                               </tr>
-                              {isExpanded && (
-                                <tr className="benchmark-details-row">
-                                  <td colSpan={9} style={{ background: "var(--bg-secondary)", padding: "14px 20px", borderBottom: "1px solid var(--border-color)" }}>
-                                    <strong style={{ fontSize: "13.5px", color: "var(--text-main)" }}>{r.Model || r.model_name}</strong>
-                                    <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: 4 }}>
-                                      Evaluation Horizon: {r.Horizon} · RMSE: {r.RMSE_mgdL ?? r.rmse} mg/dL · MAE: {r.MAE_mgdL ?? r.mae} mg/dL
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </React.Fragment>
-                          );
-                        })
-                    )}
+                            )}
+                          </React.Fragment>
+                        );
+                      } else {
+                        const { r, rowKey } = item;
+                        const isExpanded = !!expandedModels[rowKey];
+                        return (
+                          <React.Fragment key={rowKey}>
+                            <tr>
+                              <td>
+                                <strong style={{ fontSize: "13px", color: "var(--text-main)" }}>
+                                  {r.Model || r.model_name || "Model"}
+                                </strong>
+                              </td>
+                              <td><Badge label="Research" type="neutral" /></td>
+                              <td><span className="model-tag offline">Benchmark</span></td>
+                              <td style={{ fontWeight: 600, color: "var(--emerald-800)" }}>{r.Horizon}</td>
+                              <td><span className={r.Model?.includes("Hybrid") ? "benchmark-best" : ""}>{r.RMSE_mgdL ?? r.rmse}</span></td>
+                              <td>{r.MAE_mgdL ?? r.mae}</td>
+                              <td>—</td>
+                              <td>{r.Clarke_AB_pct ? `${r.Clarke_AB_pct}%` : "—"}</td>
+                              <td style={{ textAlign: "right" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleModelExpand(rowKey)}
+                                  className="btn-link-subtle"
+                                  style={{ marginLeft: "auto" }}
+                                >
+                                  {isExpanded ? "Show Less" : "Show More"}
+                                </button>
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr className="benchmark-details-row">
+                                <td colSpan={9} style={{ background: "var(--bg-secondary)", padding: "14px 20px", borderBottom: "1px solid var(--border-color)" }}>
+                                  <strong style={{ fontSize: "13.5px", color: "var(--text-main)" }}>{r.Model || r.model_name}</strong>
+                                  <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: 4 }}>
+                                    Evaluation Horizon: {r.Horizon} · RMSE: {r.RMSE_mgdL ?? r.rmse} mg/dL · MAE: {r.MAE_mgdL ?? r.mae} mg/dL
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      }
+                    })}
                   </tbody>
                 </table>
               </div>
+
+              {benchmarkRows.length > 5 && (
+                <div className="benchmark-pagination-bar">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setShowAllRows(prev => !prev)}
+                    id="benchmark-toggle-rows-btn"
+                    aria-expanded={showAllRows}
+                  >
+                    {showAllRows
+                      ? "Show Less"
+                      : `Show More (${benchmarkRows.length - 5} more rows)`}
+                  </button>
+                  <span className="benchmark-pagination-counter">
+                    Showing {displayedRows.length} of {benchmarkRows.length} evaluation rows
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -4360,6 +4400,215 @@ function SettingsPage({
   );
 }
 
+// ── Omnipresent Floating Research Assistant ──────────────────────────────────
+function FloatingAssistant({
+  selectedPatientId,
+  patientName,
+}: {
+  selectedPatientId: string;
+  patientName: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [messages, setMessages] = useState<{ role: "assistant" | "user"; text: string; time?: string }[]>([
+    {
+      role: "assistant",
+      text: "Hello! I am your Research Assistant grounded in the T1D Digital Twin dataset and Bergman Minimal Model ODE. Ask me about equations, EKF state estimation, benchmark metrics, or active telemetry.",
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, loading, isOpen]);
+
+  const QUICK_PROMPTS = [
+    "Explain Bergman Model",
+    "What is EKF?",
+    "Check current TIR",
+    "Model Limitations",
+    "Is this for dosing?",
+    "Explain Hybrid Neural-ODE",
+  ];
+
+  const ask = async (q: string) => {
+    if (!q.trim() || loading) return;
+    const userQuery = q.trim();
+    setMessages(prev => [...prev, { role: "user", text: userQuery, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+    setInput("");
+    setLoading(true);
+
+    try {
+      const res = await axios.post("/api/assistant/query", {
+        query: userQuery,
+        patient_id: selectedPatientId,
+        patient_name: patientName,
+      });
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "assistant",
+          text: res.data.answer,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+      ]);
+    } catch (err: any) {
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "assistant",
+          text: "Unable to reach research assistant service. Ensure the FastAPI backend is online at " + (cleanApiBase || "http://127.0.0.1:8000") + ".",
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Floating Action Trigger Button */}
+      <button
+        type="button"
+        className={`floating-assistant-btn ${isOpen ? "open" : ""}`}
+        onClick={() => setIsOpen(prev => !prev)}
+        aria-label={isOpen ? "Close Research Assistant" : "Open Research Assistant"}
+        title="Research Assistant"
+        id="floating-assistant-trigger"
+      >
+        <span className="floating-assistant-icon-wrap">
+          {isOpen ? <X size={18} /> : <Bot size={18} />}
+        </span>
+        <span className="floating-assistant-btn-text">Research Assistant</span>
+        <Sparkles size={13} style={{ color: "#a7f3d0", opacity: 0.9 }} />
+        <span className="floating-assistant-pulse" aria-hidden="true" />
+      </button>
+
+      {/* Floating Panel / Mobile Drawer */}
+      {isOpen && (
+        <div className="floating-assistant-panel" role="dialog" aria-modal="true" aria-label="Research Assistant Chat" id="floating-assistant-panel">
+          <div className="floating-assistant-header">
+            <div className="floating-assistant-title">
+              <div className="assistant-avatar" style={{ width: 28, height: 28 }}>
+                <Bot size={15} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 6 }}>
+                  Research Assistant
+                  <span className="model-tag live" style={{ fontSize: 9.5, padding: "1px 6px" }}>Ground-Truth</span>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                  Context: {patientName} · Deterministic Engine
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <button
+                type="button"
+                className="btn-link-subtle"
+                onClick={() => setMessages([{
+                  role: "assistant",
+                  text: "Session cleared. What would you like to explore regarding the T1D Digital Twin or physiological models?"
+                }])}
+                title="Reset conversation"
+                style={{ fontSize: 11 }}
+              >
+                <RotateCcw size={12} /> Reset
+              </button>
+              <button
+                type="button"
+                className="btn-icon-subtle"
+                onClick={() => setIsOpen(false)}
+                title="Close Assistant"
+                aria-label="Close Assistant"
+                id="floating-assistant-close-btn"
+                style={{ padding: 4 }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div className="floating-assistant-body" ref={scrollRef}>
+            {messages.map((m, i) => (
+              <div
+                key={i}
+                className={`assistant-msg ${m.role === "user" ? "user" : ""}`}
+                style={m.role === "user" ? { flexDirection: "row-reverse" } : {}}
+              >
+                {m.role === "assistant" && (
+                  <div className="assistant-avatar">
+                    <Bot size={13} />
+                  </div>
+                )}
+                <div className={`assistant-bubble ${m.role === "user" ? "user-msg" : ""}`} style={{ whiteSpace: "pre-wrap" }}>
+                  {m.text}
+                  {m.time && (
+                    <div style={{ fontSize: 9.5, opacity: 0.65, marginTop: 4, textAlign: m.role === "user" ? "right" : "left" }}>
+                      {m.time}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="assistant-msg">
+                <div className="assistant-avatar">
+                  <Bot size={13} />
+                </div>
+                <div className="assistant-bubble" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Spinner />
+                  <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Querying knowledge engine...</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="assistant-quick-btns">
+            {QUICK_PROMPTS.map(q => (
+              <button
+                key={q}
+                type="button"
+                className="assistant-quick-btn"
+                onClick={() => ask(q)}
+                disabled={loading}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+
+          <div className="floating-assistant-footer">
+            <input
+              className="assistant-input"
+              placeholder={`Ask about ODEs, EKF, metrics, or ${patientName}...`}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && !e.shiftKey && ask(input)}
+              disabled={loading}
+              id="floating-assistant-input"
+            />
+            <button
+              type="button"
+              className="assistant-send-btn"
+              onClick={() => ask(input)}
+              title="Send question"
+              disabled={loading || !input.trim()}
+              id="floating-assistant-send-btn"
+            >
+              <Send size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── Root App Component ────────────────────────────────────────────────────────
 export default function App() {
   const [page, setPage] = useState("twin");
@@ -4554,6 +4803,12 @@ export default function App() {
           {renderPage()}
         </div>
       </main>
+
+      {/* Omnipresent Floating Research Assistant (Available on all pages) */}
+      <FloatingAssistant
+        selectedPatientId={selectedId}
+        patientName={profileNames[selectedId] || patients.find(p => p.id === selectedId)?.display_name || selectedId}
+      />
     </div>
   );
 }

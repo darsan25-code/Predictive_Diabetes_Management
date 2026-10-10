@@ -1135,7 +1135,8 @@ def run_whatif(req: WhatIfRequest):
 def query_assistant(req: AssistantQueryRequest):
     """
     Context-aware research assistant query endpoint.
-    Synthesizes current patient parameters, active simulation results, and Bergman ODE equations.
+    Deterministic, data-grounded knowledge engine classifying scientific, mathematical,
+    and patient-specific questions.
     """
     q = req.query.strip().lower()
     pname = req.patient_name or req.patient_id or "Virtual Patient"
@@ -1149,94 +1150,149 @@ def query_assistant(req: AssistantQueryRequest):
     mean_g = metrics.get("mean_glucose_mgdL") if metrics.get("mean_glucose_mgdL") is not None else sim.get("mean_glucose_mgdL")
     peak_g = metrics.get("peak_glucose_mgdL") if metrics.get("peak_glucose_mgdL") is not None else sim.get("peak_glucose_mgdL")
     ttp = sim.get("time_to_peak_h") if sim.get("time_to_peak_h") is not None else metrics.get("time_to_peak_h")
+    curr_g = metrics.get("current_glucose_mgdL")
 
-    if "hybrid" in q or "residual" in q or "gru" in q:
+    # 1. Greetings
+    if q in ["hi", "hello", "hey", "good morning", "good afternoon", "good evening", "greetings", "howdy", "sup"] or q.startswith(("hi ", "hello ", "hey ")):
         answer = (
-            "The Hybrid Digital Twin pairs the Bergman Minimal Model ODE with a recurrent neural network (ResidualGRU). "
-            "The mechanistic ODE calculates the baseline glucose-insulin dynamics based on differential equations, "
-            "while the GRU predicts multi-step error residuals caused by unmodeled sensor noise, circadian rhythm, and gut absorption variability. "
-            "In Phase 4 evaluation on held-out test data, the Hybrid model achieved 25.85 mg/dL RMSE at 30 minutes (vs 28.07 mg/dL for mechanistic-only and 32.83 mg/dL for persistence)."
+            f"Hello! I am your T1D Digital Twin Research Assistant. "
+            f"I can help explain the Bergman Minimal Model ODE, telemetry metrics for {pname}, "
+            "Extended Kalman Filter (EKF) estimation, What-If simulation dynamics, or multi-horizon benchmark results. "
+            "What would you like to explore?"
         )
-    elif "ekf" in q or "kalman" in q or "state estimation" in q:
+    # 2. Who are you / Capabilities / Help
+    elif any(k in q for k in ["who are you", "what can you do", "help me", "commands", "about you", "what is this assistant"]):
         answer = (
-            "The Extended Kalman Filter (EKF) performs state estimation over the 3 physiological states [G (glucose), X (remote insulin action), I (plasma insulin)]. "
-            "Because plasma and remote insulin cannot be measured continuously in real time, the EKF uses linearized continuous-discrete Jacobians and Joseph-form covariance updates "
-            "to estimate hidden insulin action and 95% uncertainty bounds from noisy CGM observations."
+            "I am a research assistant embedded in the T1D Digital Twin platform. I can answer questions on:\n"
+            "• Mathematical modeling (Bergman Minimal Model equations, parameter meanings S_I and S_G)\n"
+            "• Glycemic metrics (Time in Range, TBR, TAR, glucose variability)\n"
+            "• State estimation (Extended Kalman Filter for unobserved insulin action)\n"
+            "• Simulation mechanics (Carbohydrate appearance, basal/bolus delivery, What-If counterfactuals)\n"
+            "• Multi-horizon model benchmarks (RMSE, MAE, MARD, Clarke Error Grid Zones A & B)\n"
+            "• Platform architecture (FastAPI, React, SQLite, synthetic cohort datasets)"
         )
-    elif "model comparison" in q or "accuracy" in q or "rmse" in q or "benchmark" in q:
+    # 3. Medical / Dosing Safety Notice
+    elif any(k in q for k in ["dose", "how much insulin", "inject", "prescribe", "treatment plan", "medical advice", "cure"]):
         answer = (
-            "Across 4 multi-horizon test benchmarks (Phase 4): "
-            "At 30-min horizon: Hybrid (RMSE 25.85 mg/dL, 87.0% Clarke A+B) outperforms Mechanistic-only (28.07 mg/dL) and Persistence (32.83 mg/dL). "
-            "At 60-min horizon: Hybrid achieves 25.02 mg/dL RMSE with 90.1% Clarke A+B. "
-            "At 120–240 min horizons: The mechanistic ODE anchor prevents long-term neural drift, maintaining bounded physiological plausibility [20, 600] mg/dL."
+            "SAFETY NOTICE: This platform is strictly a research and educational prototype utilizing synthetic datasets. "
+            "It is NOT a certified medical device and NEVER provides medical advice, clinical diagnosis, treatment recommendations, "
+            "or insulin dosing instructions. Please consult a licensed medical provider or endocrinologist for diabetes therapy."
         )
-    elif "tir" in q or "time in range" in q:
-        tir_str = f" Currently for {pname}, Time in Range is {tir:.1f}%." if tir is not None else ""
+    # 4. Bergman Minimal Model & Differential Equations
+    elif any(k in q for k in ["bergman", "minimal model", "equation", "differential equation", "ode", "formula", "p1", "p2", "p3", "vg", "gb", "ib"]):
         answer = (
-            f"Time in Range (TIR) measures the percentage of readings within the 70–180 mg/dL target zone.{tir_str} "
-            "In clinical research guidelines, a target of ≥70% TIR is recommended to minimize long-term complication risks while keeping hypoglycemia (<4%) strictly bounded."
+            "The Bergman Minimal Model (Bergman et al., 1981) models glucose-insulin homeostasis using two coupled ODEs:\n\n"
+            "1. Glucose kinetics: dG/dt = -(p1 + X)*G + p1*Gb + Ra(t)/Vg\n"
+            "2. Insulin action: dX/dt = -p2*X + p3*(I(t) - Ib)\n\n"
+            "Parameters:\n"
+            "• G(t): Plasma glucose (mg/dL), X(t): Remote insulin action (1/min), I(t): Plasma insulin (mU/L)\n"
+            "• p1 (S_G): Glucose effectiveness (insulin-independent glucose uptake)\n"
+            "• p2: Rate constant of insulin action clearance\n"
+            "• p3: Insulin action acceleration\n"
+            "• S_I = p3/p2: Insulin Sensitivity Index\n"
+            "• Gb, Ib: Basal glucose (mg/dL) and insulin (mU/L)\n"
+            "• Vg: Glucose distribution volume (~117 dL for a 70 kg adult)\n"
+            "• Ra(t): Systemic glucose appearance rate from gut absorption (mg/min)"
         )
-    elif "graph" in q or "explain this" in q or "plot" in q or "chart" in q:
+    # 5. Model Limitations & Assumptions
+    elif any(k in q for k in ["limitation", "weakness", "drawback", "assumption", "simplification", "is this real"]):
         answer = (
-            "This glucose trajectory chart displays time on the horizontal axis and glucose (mg/dL) on the vertical axis. "
-            "The shaded band indicates the target range (70–180 mg/dL) bounded by the red (70 mg/dL) and amber (180 mg/dL) reference lines. "
-            "Historical readings reflect dataset sensor observations (solid dark green), ODE simulations (solid teal) show the numerical integration of the Bergman Minimal Model, "
-            "and forecasts (purple dashed) project 30-minute glycemic trajectories."
+            "Key scientific limitations of this digital twin implementation include:\n"
+            "1. Gut Absorption: Uses an idealized 60-minute triangular curve with 80% bioavailability rather than complex multi-compartment gastric emptying (which delays with dietary fat and protein).\n"
+            "2. Linear Insulin Kinetics: Omits multi-compartment subcutaneous hexamer-to-monomer dissociation delays.\n"
+            "3. Exercise & Circadian Factors: Captured as research metadata rather than dynamic endocrine submodels.\n"
+            "4. Synthetic Cohorts: Calibrated against UVA/Padova synthetic simulator datasets for academic demonstration, not real patient clinical trials."
         )
-    elif "compare" in q or "difference" in q or "sensor" in q:
+    # 6. Hybrid Neural-ODE & Residual Model
+    elif any(k in q for k in ["hybrid", "residual", "gru", "neural ode", "machine learning"]):
         answer = (
-            "CGM Historical represents continuous benchmark sensor data with real-world sensor noise and unmeasured physiological disturbances. "
-            "In contrast, the ODE Simulation represents deterministic output from the Bergman Minimal Model differential equations: dG/dt = -p1*G - X*G + Gb*p1 + Ra(t)/Vg, "
-            "providing an idealized mechanistic view of postprandial glucose disposal."
+            "The Hybrid Digital Twin combines mechanistic differential equations with deep learning:\n"
+            "• Mechanistic Core: Bergman ODE calculates baseline physiological glucose disposal.\n"
+            "• Neural Residual: A Recurrent Neural Network (ResidualGRU) predicts multi-step error residuals caused by sensor noise, circadian drift, and gut absorption variations.\n"
+            "• Benchmark Results (Phase 4): At a 30-min horizon, the Hybrid model achieved 25.85 mg/dL RMSE (vs 28.07 mg/dL for mechanistic-only and 32.83 mg/dL for persistence) with 87.0% Clarke Zone A+B."
         )
-    elif "summarize" in q or "simulation" in q or "peak" in q:
+    # 7. Extended Kalman Filter (EKF)
+    elif any(k in q for k in ["ekf", "kalman", "state estimation", "hidden state", "jacobian", "covariance"]):
+        answer = (
+            "The Extended Kalman Filter (EKF) performs real-time continuous-discrete state estimation:\n"
+            "• Hidden State Estimation: Continuous glucose monitors (CGM) measure glucose G(t), but remote insulin action X(t) and plasma insulin I(t) cannot be measured continuously. The EKF reconstructs these hidden states.\n"
+            "• Mathematical Formulation: Integrates nonlinear ODE physics between 5-minute measurements and applies linearized Jacobians with Joseph-form covariance updates.\n"
+            "• Confidence Intervals: Computes 95% uncertainty bounds (±1.96 * sigma) reflecting measurement noise and process disturbance."
+        )
+    # 8. Model Benchmark & Evaluation Metrics (RMSE, Clarke, MARD)
+    elif any(k in q for k in ["benchmark", "comparison", "rmse", "mae", "mard", "clarke", "zone a", "zone b", "accuracy", "horizon"]):
+        answer = (
+            "In Phase 4 multi-horizon evaluation on held-out test data (synthetic_004, 3456 samples):\n"
+            "• 30-min horizon: Hybrid Neural-ODE (RMSE: 25.85 mg/dL, Clarke A+B: 87.0%) outperforms Mechanistic ODE (28.07 mg/dL) and Persistence (32.83 mg/dL).\n"
+            "• 60-min horizon: Hybrid achieves 25.02 mg/dL RMSE with 90.1% Clarke A+B.\n"
+            "• 120–240 min horizons: Pure neural networks can drift; the mechanistic ODE baseline anchors long-term predictions within physiological bounds [20, 600] mg/dL.\n"
+            "• Clarke Error Grid: Zones A and B represent clinically safe and benign predictions."
+        )
+    # 9. Time in Range (TIR, TBR, TAR, CV)
+    elif any(k in q for k in ["tir", "tbr", "tar", "time in range", "target range", "cv", "variability", "glycemic"]):
+        tir_str = f" For {pname}, the active telemetry shows TIR: {tir:.1f}%, Mean Glucose: {mean_g:.1f} mg/dL." if tir is not None else ""
+        answer = (
+            f"Clinical consensus targets for Continuous Glucose Monitoring (CGM) include:\n"
+            "• Time in Range (TIR, 70–180 mg/dL): Target ≥70% to lower microvascular complication risk.\n"
+            "• Time Below Range (TBR, <70 mg/dL): Target <4% to strictly avoid hypoglycemia.\n"
+            "• Time Above Range (TAR, >180 mg/dL): Target <25% to minimize postprandial hyperglycemia.\n"
+            "• Glycemic Variability (CV = SD/Mean): Target ≤36% for metabolic stability.{tir_str}"
+        )
+    # 10. Glucose Chart / Plot Interpretation
+    elif any(k in q for k in ["graph", "chart", "plot", "explain this", "trajectory"]):
+        answer = (
+            "The glucose chart displays continuous time on the horizontal axis and glucose (mg/dL) on the vertical axis:\n"
+            "• Shaded Band (70–180 mg/dL): Recommended target range between the red (70 mg/dL) and amber (180 mg/dL) reference thresholds.\n"
+            "• Solid Dark Green Line: Historical CGM sensor telemetry from benchmark cohorts.\n"
+            "• Solid Teal Line: Continuous ODE numerical integration from the calibrated Bergman model.\n"
+            "• Dashed Purple Line: 30-minute forward forecast trajectory."
+        )
+    # 11. What-If Simulation & Meal / Insulin Responses
+    elif any(k in q for k in ["whatif", "what-if", "meal", "carb", "carbohydrate", "bolus", "basal", "scenario", "absorption"]):
+        cho = scenario.get("meal_cho_g") or sim.get("total_carbs_g") or 40
+        answer = (
+            f"In the What-If Lab, counterfactual metabolic scenarios are simulated:\n"
+            f"• Ingested Carbohydrates ({cho}g): Ingested carbs are converted to systemic glucose appearance Ra(t) via a 60-minute triangular absorption curve (30-min peak, 80% bioavailability).\n"
+            "• Basal & Bolus Insulin: Basal rate (mU/min) maintains resting glucose disposal, while bolus delivery (Units) rapidly stimulates remote insulin action X(t).\n"
+            "• Baseline Comparison: Directly compares the scenario against a standard 40g meal baseline under identical initial states and model parameters."
+        )
+    # 12. Patient Summary & Status
+    elif any(k in q for k in ["patient", "status", "how is", "summarize", "telemetry"]):
         if sim or metrics:
             init_g = sim.get("initial_glucose_mgdL", metrics.get("initial_glucose_mgdL", "N/A"))
             peak_val = sim.get("peak_glucose_mgdL", metrics.get("peak_glucose_mgdL", "N/A"))
             final_val = sim.get("final_glucose_mgdL", metrics.get("final_glucose_mgdL", "N/A"))
             ttp_min = f"{float(ttp)*60:.0f} min" if ttp is not None else "N/A"
             answer = (
-                f"For this simulation of {pname}, the model started at {init_g} mg/dL, reached a peak glucose of {peak_val} mg/dL at {ttp_min}, "
-                f"and finished at {final_val} mg/dL. TIR across the simulated window was {tir if tir is not None else 'N/A'}%."
+                f"Summary for {pname}:\n"
+                f"• Initial Glucose: {init_g} mg/dL\n"
+                f"• Peak Glucose: {peak_val} mg/dL at {ttp_min}\n"
+                f"• Final Glucose: {final_val} mg/dL\n"
+                f"• Time in Range (TIR): {tir if tir is not None else 'N/A'}%\n"
+                f"• Mean Glucose: {mean_g if mean_g is not None else 'N/A'} mg/dL"
             )
         else:
-            answer = f"The Bergman ODE simulation models glucose-insulin kinetics based on meal carbohydrate appearance Ra(t) and basal insulin delivery for {pname}."
-    elif "meal" in q or "carb" in q:
-        cho = scenario.get("meal_cho_g") or sim.get("total_carbs_g") or 40
+            answer = f"The active digital twin profile for {pname} uses calibrated Bergman ODE parameters with continuous telemetry in the 70–180 mg/dL target zone."
+    # 13. Platform Architecture & Data Flow
+    elif any(k in q for k in ["architecture", "stack", "fastapi", "react", "railway", "vercel", "database", "sqlite", "privacy", "data flow"]):
         answer = (
-            f"Ingested carbohydrates ({cho}g) are converted into glucose appearance rate Ra(t) using a triangular gut absorption model (30-min peak, 60-min spread, 80% bioavailability). "
-            "This elevates plasma glucose, activating insulin-dependent glucose disposal governed by parameter S_I."
+            "Platform Architecture:\n"
+            "• Frontend: React 19 + TypeScript + Vite deployed on Vercel.\n"
+            "• Backend: Python 3.12 FastAPI service deployed on Railway with SciPy RK45 solvers and PyTorch.\n"
+            "• Database: Local SQLite storage at data/processed/patients.db for patient profiles and meal logs.\n"
+            "• Data Privacy: Operates entirely on synthetic cohort datasets. No real patient health records are collected or transmitted."
         )
-    elif "exercise" in q or "activity" in q:
-        ex_type = exercise.get("type", "None")
-        ex_dur = exercise.get("duration_min", 0)
-        answer = (
-            f"Exercise scenario ({ex_type}, {ex_dur} min) is recorded as experimental research metadata. "
-            "Note: The classical Bergman Minimal Model differential equations do not include active muscle contraction glucose uptake. "
-            "To model exercise numerically, a multi-compartment metabolic model with glycogen depletion and non-insulin-mediated glucose uptake would be required."
-        )
-    elif "sleep" in q or "rest" in q:
-        sl_dur = sleep.get("duration_hours", 8)
-        answer = (
-            f"Sleep scenario ({sl_dur}h duration) is stored as research context. "
-            "In human physiology, sleep deprivation alters nocturnal growth hormone and morning cortisol (dawn phenomenon), increasing insulin resistance. "
-            "In this research prototype, sleep is captured as metadata and does not artificially distort the ODE minimal model without a validated circadian endocrine submodel."
-        )
-    elif "dose" in q or "insulin" in q or "treatment" in q or "recommend" in q:
-        answer = (
-            "SAFETY NOTICE: This platform is strictly a research prototype with synthetic data and not a medical device. "
-            "It never provides clinical decisions, personalized medical advice, or insulin dosing recommendations."
-        )
-    elif "sensitivity" in q or "s_i" in q or "effectiveness" in q or "s_g" in q:
-        answer = (
-            "In the Bergman Minimal Model, Insulin Sensitivity (S_I = p3/p2) represents the capacity of insulin to promote glucose disposal. "
-            "Glucose Effectiveness (S_G = p1) represents glucose's self-mediated ability to promote its own uptake and suppress hepatic production independently of insulin."
-        )
+    # 14. Conversational Fallback
     else:
         answer = (
-            f"Regarding your query for {pname}: The platform integrates the Bergman Minimal Model ODE calibrated to synthetic benchmark data with optional Hybrid Neural-ODE residual inference. "
-            f"Current metrics show TIR: {tir if tir is not None else 'N/A'}%, Mean Glucose: {mean_g if mean_g is not None else 'N/A'} mg/dL. "
-            "Ask about Hybrid forecasting, Extended Kalman Filtering, Time in Range, simulation comparisons, meal absorption, or model parameters."
+            f"Regarding your query about {pname}: The platform integrates the Bergman Minimal Model ODE calibrated to synthetic benchmark data with optional Hybrid Neural-ODE residual inference.\n"
+            f"Current metrics show TIR: {tir if tir is not None else 'N/A'}%, Mean Glucose: {mean_g if mean_g is not None else 'N/A'} mg/dL.\n\n"
+            "Suggested topics you can ask me:\n"
+            "• 'Explain the Bergman Minimal Model equations'\n"
+            "• 'How does the EKF estimate hidden insulin action?'\n"
+            "• 'What are the model limitations?'\n"
+            "• 'Explain Model Benchmark Clarke Error Grid zones'\n"
+            "• 'How does carbohydrate absorption work in What-If?'"
         )
 
     return {
@@ -1245,7 +1301,7 @@ def query_assistant(req: AssistantQueryRequest):
         "patient_id": req.patient_id,
         "disclaimer": DISCLAIMER,
         "data_origin": "research_rules_engine",
-        "engine": "Rule-Based Research Knowledge Engine (Deterministic & Fully Traceable)",
+        "engine": "Deterministic Research Knowledge Engine (Ground-Truth Traceable)",
     }
 
 

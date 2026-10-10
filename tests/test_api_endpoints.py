@@ -267,6 +267,38 @@ class TestAssistant:
         d = resp.json()
         assert "SAFETY NOTICE" in d["answer"] or "medical device" in d["answer"].lower()
 
+    def test_assistant_query_greeting(self, client):
+        payload = {"query": "hello", "patient_name": "Synthetic Patient 001"}
+        resp = client.post("/api/assistant/query", json=payload)
+        assert resp.status_code == 200
+        d = resp.json()
+        assert "Hello" in d["answer"]
+        assert len(d["answer"].split("\n")) <= 4
+
+    def test_assistant_query_bergman_equations(self, client):
+        payload = {"query": "Explain the Bergman Minimal Model equations"}
+        resp = client.post("/api/assistant/query", json=payload)
+        assert resp.status_code == 200
+        d = resp.json()
+        ans = d["answer"]
+        assert "dG/dt" in ans or "p1" in ans
+        assert "Remote Insulin Action" in ans or "dX/dt" in ans
+
+    def test_assistant_query_ekf(self, client):
+        payload = {"query": "How does the Extended Kalman Filter work?"}
+        resp = client.post("/api/assistant/query", json=payload)
+        assert resp.status_code == 200
+        d = resp.json()
+        assert "Extended Kalman Filter" in d["answer"]
+        assert "confidence" in d["answer"].lower() or "covariance" in d["answer"].lower()
+
+    def test_assistant_query_limitations(self, client):
+        payload = {"query": "What are the limitations of this model?"}
+        resp = client.post("/api/assistant/query", json=payload)
+        assert resp.status_code == 200
+        d = resp.json()
+        assert "absorption" in d["answer"].lower() or "limitations" in d["answer"].lower()
+
 
 class TestPrivacy:
     def test_200(self, client):
